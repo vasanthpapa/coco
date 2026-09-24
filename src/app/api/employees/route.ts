@@ -30,7 +30,7 @@ function formatEmployee(row: EmployeeRow) {
  */
 export async function GET() {
   try {
-    const rows = db
+    const rows = await db
       .prepare(`
         SELECT
           id,
@@ -112,7 +112,7 @@ export async function POST(
       );
     }
 
-    const existingEmpId = db
+    const existingEmpId = await db
       .prepare(`
         SELECT id
         FROM employees
@@ -135,7 +135,7 @@ export async function POST(
       );
     }
 
-    const existingName = db
+    const existingName = await db
       .prepare(`
         SELECT id
         FROM employees
@@ -158,7 +158,7 @@ export async function POST(
       );
     }
 
-    const maxSortOrder = db
+    const maxSortOrder = await db
       .prepare(`
         SELECT
           COALESCE(
@@ -174,7 +174,7 @@ export async function POST(
     const sortOrder =
       maxSortOrder.max_sort_order + 1;
 
-    const result = db
+    const result = await db
       .prepare(`
         INSERT INTO employees (
           emp_id,
@@ -190,7 +190,7 @@ export async function POST(
         sortOrder
       );
 
-    const created = db
+    const created = await db
       .prepare(`
         SELECT
           id,

@@ -26,7 +26,7 @@ function formatMapping(row: NameMappingRow) {
  */
 export async function GET() {
   try {
-    const rows = db
+    const rows = await db
       .prepare(`
         SELECT
           nm.id,
@@ -104,7 +104,7 @@ export async function POST(
     }
 
     // Find the employee using the current display name.
-    const employee = db
+    const employee = await db
       .prepare(`
         SELECT
           id,
@@ -134,7 +134,7 @@ export async function POST(
     }
 
     // Find mapping using stable emp_id.
-    const existing = db
+    const existing = await db
       .prepare(`
         SELECT
           id,
@@ -175,7 +175,7 @@ export async function POST(
 
       aliases.push(alias);
 
-      db.prepare(`
+      await db.prepare(`
         UPDATE name_mappings
         SET
           employee_name = ?,
@@ -188,7 +188,7 @@ export async function POST(
         employee.emp_id
       );
 
-      const updated = db
+      const updated = await db
         .prepare(`
           SELECT
             nm.id,
@@ -212,7 +212,7 @@ export async function POST(
     }
 
     // Create a new mapping using emp_id.
-    const result = db
+    const result = await db
       .prepare(`
         INSERT INTO name_mappings (
           emp_id,
@@ -227,7 +227,7 @@ export async function POST(
         JSON.stringify([alias])
       );
 
-    const created = db
+    const created = await db
       .prepare(`
         SELECT
           nm.id,
@@ -267,7 +267,7 @@ export async function POST(
 
 export async function DELETE() {
   try {
-    db.prepare(`
+    await db.prepare(`
       DELETE FROM name_mappings
     `).run();
 

@@ -38,8 +38,8 @@ interface MappingRow {
   updated_at: string;
 }
 
-export function getActiveEmployees(): AnalyzerEmployee[] {
-  const rows = db.prepare(`
+export async function getActiveEmployees(): Promise<AnalyzerEmployee[]> {
+  const rows = await db.prepare(`
     SELECT
       id,
       emp_id,
@@ -64,14 +64,14 @@ export function getActiveEmployees(): AnalyzerEmployee[] {
   }));
 }
 
-export function getActiveEmployeeNames(): string[] {
-  return getActiveEmployees().map(
+export async function getActiveEmployeeNames(): Promise<string[]> {
+  return (await getActiveEmployees()).map(
     employee => employee.employeeName
   );
 }
 
-export function getNameMappings(): AnalyzerMapping[] {
-  const rows = db.prepare(`
+export async function getNameMappings(): Promise<AnalyzerMapping[]> {
+  const rows = await db.prepare(`
     SELECT
       id,
       emp_id,

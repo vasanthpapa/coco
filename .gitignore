@@ -1,2 +1,10 @@
 # See previous chat
 node_modules
+.next/
+.vercel/
+.env*
+!.env.example
+data/
+*.tsbuildinfo
+*.log
+.test-output/

@@ -1,177 +1,98 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
+import { createClient, type Client, type InValue, type Transaction } from '@libsql/client';
+import { mkdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { initializeSchema } from './databaseSchema';
 
-const dataDir = path.join(process.cwd(), 'data');
+// Connect lazily so API error handlers can catch configuration failures.
+let client: Client | undefined;
+let ready: Promise<void> | undefined;
 
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+function getClient(): Client {
+  if (client) return client;
+  const url = process.env.TURSO_DATABASE_URL?.trim();
+  const authToken = process.env.TURSO_AUTH_TOKEN?.trim();
+  if (process.env.VERCEL && (!url || !authToken || !/^(libsql|https):\/\//.test(url))) {
+    throw new Error('Configure TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in Vercel and redeploy.');
+  }
+  if (url) {
+    client = createClient({ url, authToken, intMode: 'number' });
+  } else {
+    const file = resolve(process.env.LOCAL_DATABASE_PATH || 'data/coco.db');
+    mkdirSync(dirname(file), { recursive: true });
+    client = createClient({ url: pathToFileURL(file).href, intMode: 'number' });
+  }
+  return client;
 }
 
-const dbPath = path.join(dataDir, 'coco.db');
+export class DatabaseSession {
+  constructor(private readonly executor: Pick<Client | Transaction, 'execute'>) {}
 
-const db = new Database(dbPath);
+  prepare(sql: string) {
+    const execute = (args: InValue[]) => this.executor.execute({ sql, args });
+    return {
+      all: async (...args: InValue[]): Promise<unknown[]> => (await execute(args)).rows,
+      get: async (...args: InValue[]): Promise<unknown> => (await execute(args)).rows[0],
+      run: async (...args: InValue[]) => {
+        const result = await execute(args);
+        return { changes: result.rowsAffected, lastInsertRowid: result.lastInsertRowid ?? null };
+      },
+    };
+  }
 
-db.pragma('journal_mode = WAL');
-
-// Name mappings table
-db.exec(`
-  CREATE TABLE IF NOT EXISTS name_mappings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    employee_name TEXT NOT NULL UNIQUE,
-    aliases TEXT NOT NULL DEFAULT '[]',
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  )
-`);
-
-// Employees table
-db.exec(`
-  CREATE TABLE IF NOT EXISTS employees (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    employee_name TEXT NOT NULL UNIQUE,
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  )
-`);
-
-// Add emp_id to employees if missing.
-const employeeColumns = db
-  .prepare(`PRAGMA table_info(employees)`)
-  .all() as Array<{
-    name: string;
-  }>;
-
-const hasEmployeeEmpId = employeeColumns.some(
-  column => column.name === 'emp_id'
-);
-
-if (!hasEmployeeEmpId) {
-  db.exec(`
-    ALTER TABLE employees
-    ADD COLUMN emp_id TEXT
-  `);
+  async exec(sql: string): Promise<void> {
+    await this.executor.execute(sql);
+  }
 }
 
-// Assign EMP001, EMP002, ... to existing employees.
-const employeesWithoutEmpId = db
-  .prepare(`
-    SELECT id
-    FROM employees
-    WHERE emp_id IS NULL
-       OR TRIM(emp_id) = ''
-    ORDER BY id ASC
-  `)
-  .all() as Array<{
-    id: number;
-  }>;
-
-if (employeesWithoutEmpId.length > 0) {
-  const updateEmpId = db.prepare(`
-    UPDATE employees
-    SET
-      emp_id = ?,
-      updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `);
-
-  const assignEmpIds = db.transaction(() => {
-    const lastEmployee = db
-      .prepare(`
-        SELECT emp_id
-        FROM employees
-        WHERE emp_id LIKE 'EMP%'
-        ORDER BY id DESC
-        LIMIT 1
-      `)
-      .get() as
-      | {
-          emp_id: string;
-        }
-      | undefined;
-
-    let nextNumber = lastEmployee
-      ? Number(
-          lastEmployee.emp_id.replace('EMP', '')
-        ) + 1
-      : 1;
-
-    for (const employee of employeesWithoutEmpId) {
-      const empId = `EMP${String(
-        nextNumber
-      ).padStart(3, '0')}`;
-
-      updateEmpId.run(
-        empId,
-        employee.id
-      );
-
-      nextNumber++;
-    }
-  });
-
-  assignEmpIds();
+async function ensureReady(): Promise<Client> {
+  const connection = getClient();
+  if (!ready) {
+    ready = (async () => {
+      const tx = await connection.transaction('write');
+      try {
+        await initializeSchema(new DatabaseSession(tx));
+        await tx.commit();
+      } catch (error) {
+        await tx.rollback();
+        throw error;
+      } finally {
+        tx.close();
+      }
+    })().catch(error => {
+      ready = undefined;
+      throw error;
+    });
+  }
+  await ready;
+  return connection;
 }
 
-// Protect employee IDs from duplicates.
-db.exec(`
-  CREATE UNIQUE INDEX IF NOT EXISTS
-  idx_employees_emp_id
-  ON employees(emp_id)
-`);
-
-// Add emp_id to name_mappings if missing.
-const mappingColumns = db
-  .prepare(`PRAGMA table_info(name_mappings)`)
-  .all() as Array<{
-    name: string;
-  }>;
-
-const hasMappingEmpId = mappingColumns.some(
-  column => column.name === 'emp_id'
-);
-
-if (!hasMappingEmpId) {
-  db.exec(`
-    ALTER TABLE name_mappings
-    ADD COLUMN emp_id TEXT
-  `);
-}
-
-// Connect existing mappings to their employees.
-db.exec(`
-  UPDATE name_mappings
-  SET emp_id = (
-    SELECT employees.emp_id
-    FROM employees
-    WHERE LOWER(employees.employee_name) =
-          LOWER(name_mappings.employee_name)
-    LIMIT 1
-  )
-  WHERE emp_id IS NULL
-     OR TRIM(emp_id) = ''
-`);
-
-// Protect mapping employee IDs from duplicates.
-db.exec(`
-  CREATE UNIQUE INDEX IF NOT EXISTS
-  idx_name_mappings_emp_id
-  ON name_mappings(emp_id)
-  WHERE emp_id IS NOT NULL
-`);
-
-// Keep mapping employee names synchronized with the employee table.
-db.exec(`
-  UPDATE name_mappings
-  SET employee_name = (
-    SELECT employees.employee_name
-    FROM employees
-    WHERE employees.emp_id = name_mappings.emp_id
-    LIMIT 1
-  )
-  WHERE emp_id IS NOT NULL
-`);
+const db = {
+  prepare(sql: string) {
+    const session = async () => new DatabaseSession(await ensureReady());
+    return {
+      all: async (...args: InValue[]) => (await session()).prepare(sql).all(...args),
+      get: async (...args: InValue[]) => (await session()).prepare(sql).get(...args),
+      run: async (...args: InValue[]) => (await session()).prepare(sql).run(...args),
+    };
+  },
+  transaction<T>(callback: (session: DatabaseSession) => Promise<T>) {
+    return async (): Promise<T> => {
+      const connection = await ensureReady();
+      const tx = await connection.transaction('write');
+      try {
+        const result = await callback(new DatabaseSession(tx));
+        await tx.commit();
+        return result;
+      } catch (error) {
+        await tx.rollback();
+        throw error;
+      } finally {
+        tx.close();
+      }
+    };
+  },
+};
 
 export default db;

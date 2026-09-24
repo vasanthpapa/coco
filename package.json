@@ -7,12 +7,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:database": "node --test tests/database.test.mjs",
+    "db:migrate": "node --env-file=.env.local scripts/migrate-database.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@libsql/client": "^0.18.0",
     "@types/papaparse": "^5.5.2",
-    "better-sqlite3": "^13.0.3",
     "date-fns": "^3.6.0",
     "lucide-react": "^0.378.0",
     "mongodb": "^7.6.0",
@@ -24,7 +26,6 @@
     "xlsx": "0.18.5"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^9.6.0",
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
     "@typescript-eslint/eslint-plugin": "^7.2.0",

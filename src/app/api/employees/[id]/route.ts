@@ -101,7 +101,7 @@ export async function PUT(
       );
     }
 
-    const existing = db
+    const existing = await db
       .prepare(`
         SELECT
           id,
@@ -131,7 +131,7 @@ export async function PUT(
     }
 
     // Check duplicate employee ID.
-    const duplicateEmpId = db
+    const duplicateEmpId = await db
       .prepare(`
         SELECT id
         FROM employees
@@ -160,7 +160,7 @@ export async function PUT(
     }
 
     // Check duplicate employee name.
-    const duplicateName = db
+    const duplicateName = await db
       .prepare(`
         SELECT id
         FROM employees
@@ -191,9 +191,9 @@ export async function PUT(
     const oldEmpId = existing.emp_id;
     const oldEmployeeName = existing.employee_name;
 
-    const updateEmployee = db.transaction(() => {
+    const updateEmployee = db.transaction(async (db) => {
       // Update employee identity and display name.
-      db.prepare(`
+      await db.prepare(`
         UPDATE employees
         SET
           emp_id = ?,
@@ -207,7 +207,7 @@ export async function PUT(
       );
 
       // Keep name mapping attached to the same employee.
-      db.prepare(`
+      await db.prepare(`
         UPDATE name_mappings
         SET
           emp_id = ?,
@@ -223,7 +223,7 @@ export async function PUT(
 
       // Compatibility fallback for any old mapping
       // that does not yet have an emp_id.
-      db.prepare(`
+      await db.prepare(`
         UPDATE name_mappings
         SET
           emp_id = ?,
@@ -239,9 +239,9 @@ export async function PUT(
       );
     });
 
-    updateEmployee();
+    await updateEmployee();
 
-    const updated = db
+    const updated = await db
       .prepare(`
         SELECT
           id,
@@ -307,7 +307,7 @@ export async function DELETE(
       );
     }
 
-    const existing = db
+    const existing = await db
       .prepare(`
         SELECT
           id,
@@ -336,14 +336,14 @@ export async function DELETE(
       );
     }
 
-    db.transaction(() => {
-      db.prepare(`
+    await db.transaction(async (db) => {
+      await db.prepare(`
         DELETE FROM name_mappings
         WHERE LOWER(TRIM(emp_id)) =
               LOWER(TRIM(?))
       `).run(existing.emp_id);
 
-      db.prepare(`
+      await db.prepare(`
         DELETE FROM employees
         WHERE id = ?
       `).run(employeeId);

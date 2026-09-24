@@ -22,7 +22,7 @@ export async function DELETE(
     }
 
     // Resolve employee name to the stable empId.
-    const employee = db
+    const employee = await db
       .prepare(`
         SELECT
           emp_id,
@@ -49,7 +49,7 @@ export async function DELETE(
     }
 
     // Delete mapping using stable empId.
-    const result = db
+    const result = await db
       .prepare(`
         DELETE FROM name_mappings
         WHERE emp_id = ?

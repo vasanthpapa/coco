@@ -131,10 +131,10 @@ export async function POST(
      */
 
     const employeeNames =
-      getActiveEmployeeNames();
+      await getActiveEmployeeNames();
 
     const mappings =
-      getNameMappings();
+      await getNameMappings();
 
     let data: Record<string, any>[] = [];
 

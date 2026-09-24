@@ -85,7 +85,7 @@ export async function PUT(request: Request) {
       .map(() => '?')
       .join(', ');
 
-    const existingEmployees = db
+    const existingEmployees = await db
       .prepare(`
         SELECT id
         FROM employees
@@ -111,32 +111,18 @@ export async function PUT(request: Request) {
       );
     }
 
-    const updateSortOrder = db.prepare(`
-      UPDATE employees
-      SET
-        sort_order = ?,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `);
+    await db.transaction(async (db) => {
+      const updateSortOrder = db.prepare(`
+        UPDATE employees
+        SET sort_order = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `);
+      for (const [index, employeeId] of normalizedIds.entries()) {
+        await updateSortOrder.run(index, employeeId);
+      }
+    })();
 
-    // Update everything as one transaction.
-    const reorderEmployees =
-      db.transaction(
-        (ids: number[]) => {
-          ids.forEach(
-            (employeeId, index) => {
-              updateSortOrder.run(
-                index,
-                employeeId
-              );
-            }
-          );
-        }
-      );
-
-    reorderEmployees(normalizedIds);
-
-    const rows = db
+    const rows = await db
       .prepare(`
         SELECT
           id,

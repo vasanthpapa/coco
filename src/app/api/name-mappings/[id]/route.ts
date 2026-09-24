@@ -103,7 +103,7 @@ export async function PUT(
     }
 
     // Find the employee using the current name.
-    const employee = db
+    const employee = await db
       .prepare(`
         SELECT
           id,
@@ -133,7 +133,7 @@ export async function PUT(
     }
 
     // Find existing mapping.
-    const existing = db
+    const existing = await db
       .prepare(`
         SELECT
           id,
@@ -160,7 +160,7 @@ export async function PUT(
 
     // Prevent assigning another employee's empId
     // to this mapping if that employee already has a mapping.
-    const anotherMapping = db
+    const anotherMapping = await db
       .prepare(`
         SELECT id
         FROM name_mappings
@@ -185,7 +185,7 @@ export async function PUT(
       );
     }
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE name_mappings
       SET
         emp_id = ?,
@@ -200,7 +200,7 @@ export async function PUT(
       mappingId
     );
 
-    const updated = db
+    const updated = await db
       .prepare(`
         SELECT
           nm.id,
@@ -295,7 +295,7 @@ export async function DELETE(
       );
     }
 
-    const existing = db
+    const existing = await db
       .prepare(`
         SELECT
           id,
@@ -341,7 +341,7 @@ export async function DELETE(
       );
     }
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE name_mappings
       SET
         aliases = ?,
