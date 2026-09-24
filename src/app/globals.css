@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-background text-textMain antialiased;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-4 py-2 bg-primary text-white font-medium rounded-lg hover:bg-blue-600 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-background;
+  }
+  
+  .btn-secondary {
+    @apply px-4 py-2 bg-surface text-textMain font-medium rounded-lg border border-slate-700 hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 focus:ring-offset-background;
+  }
+
+  .card {
+    @apply bg-surface rounded-xl border border-slate-800 shadow-xl overflow-hidden;
+  }
+}
+.attendance-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+
+.attendance-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.attendance-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 9999px;
+}
+
+.attendance-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
+}
