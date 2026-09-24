@@ -56,18 +56,16 @@ function detectType(
     return 'whatsapp';
   }
 
-  if (
-    cleanText.startsWith('[') ||
-    cleanText.startsWith('{')
-  ) {
-    return 'json';
-  }
-
   const whatsappRegex =
-    /^\[?\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}[,\s]+\d{1,2}:\d{2}(?::\d{2})?(?:\s?[aApP][mM])?/m;
+    /^\[?\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}[,\s]+\d{1,2}:\d{2}(?::\d{2})?(?:\s?[aApP][mM])?/;
 
   if (whatsappRegex.test(cleanText)) {
     return 'whatsapp';
+  }
+
+  // iOS chat exports also start with "[", so check timestamps before JSON.
+  if (cleanText.startsWith('[') || cleanText.startsWith('{')) {
+    return 'json';
   }
 
   if (cleanText.includes(',')) {

@@ -122,10 +122,17 @@ test('actual API handlers preserve JSON contracts and analysis works with MongoD
     { type: 'csv', text: 'name,value\nTest,1' },
     { type: 'json', text: '[{"name":"Test","value":1}]' },
     { type: 'whatsapp', text: '[24/09/2026, 09:00:00] Alias: in' },
+    { type: 'auto', text: '[24/09/2026, 09:00:00] Alias: in', expectedType: 'whatsapp' },
+    { type: 'auto', text: '\u200e[24/09/2026, 9:00:00\u202fAM] Alias: in\ncontinued message', expectedType: 'whatsapp' },
+    { type: 'auto', text: '24/09/2026, 9:00 am - Alias: in', expectedType: 'whatsapp' },
+    { type: 'auto', text: '[{"name":"Test","value":1}]', expectedType: 'json' },
   ]) {
     response = await analysis.POST(request(body));
     assert.equal(response.status, 200);
-    assert.equal((await response.json()).success, true);
+    const result = await response.json();
+    assert.equal(result.success, true);
+    assert.equal(result.type, body.expectedType || body.type);
+    assert.equal(result.data.length, 1);
   }
   response = await employees.POST(request({}));
   assert.equal(response.status, 400);
