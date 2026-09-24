@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { apiErrorResponse } from '@/src/lib/apiErrors';
 
 import { parseWhatsAppChat } from '@/src/utils/whatsappParser';
 import { parseCSV } from '@/src/utils/csvParser';
@@ -298,19 +299,6 @@ export async function POST(
       }
     );
   } catch (error) {
-    console.error(
-      'POST /api/analyze error:',
-      error
-    );
-
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Failed to analyze data.',
-      },
-      { status: 500 }
-    );
+    return apiErrorResponse(error, 'Failed to analyze data.');
   }
 }

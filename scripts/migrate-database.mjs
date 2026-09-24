@@ -1,63 +1,83 @@
-import { createClient } from '@libsql/client';
-import { existsSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { MongoClient } from 'mongodb';
+import { initializeMongoSchema } from '../src/lib/mongoSchema.ts';
 
-const url = process.env.TURSO_DATABASE_URL?.trim();
-const authToken = process.env.TURSO_AUTH_TOKEN?.trim();
-if (!url || !authToken || !/^(libsql|https):\/\//.test(url)) {
-  throw new Error('Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN before migrating.');
-}
-const file = resolve(process.env.LOCAL_DATABASE_PATH || 'data/coco.db');
-if (!existsSync(file)) throw new Error('Local database does not exist.');
-
-const source = createClient({ url: pathToFileURL(file).href });
-const destination = createClient({ url, authToken });
-const tables = ['employees', 'name_mappings'];
-let tx;
-try {
-  // Take one consistent read snapshot of the local tables and schema.
-  const snapshot = await source.batch([
-    "SELECT name, type, sql FROM sqlite_master WHERE tbl_name IN ('employees', 'name_mappings') AND sql IS NOT NULL ORDER BY type DESC",
-    ...tables.map(table => `SELECT * FROM ${table}`),
-  ], 'read');
-  const schema = snapshot[0].rows;
-  tx = await destination.transaction('write');
-  for (const table of tables) {
-    const found = await tx.execute({ sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", args: [table] });
-    if (found.rows.length) {
-      const count = await tx.execute(`SELECT COUNT(*) AS count FROM ${table}`);
-      if (Number(count.rows[0].count) > 0) {
-        throw new Error(`Destination ${table} is not empty. No records were copied.`);
+export async function migrateSqliteToMongo(client, database, file) {
+  if (!existsSync(file)) throw new Error('Local SQLite database does not exist.');
+  const source = new DatabaseSync(file, { readOnly: true });
+  let employees, mappings;
+  try {
+    source.exec('BEGIN');
+    const employeeRows = source.prepare('SELECT * FROM employees ORDER BY id').all();
+    const mappingRows = source.prepare('SELECT * FROM name_mappings ORDER BY id').all();
+    source.exec('COMMIT');
+    const now = new Date().toISOString();
+    employees = employeeRows.map(row => ({
+      id: Number(row.id), empId: String(row.emp_id || `EMP${String(row.id).padStart(3, '0')}`).trim().toUpperCase(),
+      employeeName: String(row.employee_name).trim(), nameKey: String(row.employee_name).trim().toLowerCase(),
+      sortOrder: Number(row.sort_order || 0), active: Boolean(row.active),
+      createdAt: String(row.created_at || now), updatedAt: String(row.updated_at || now),
+    }));
+    mappings = mappingRows.map(row => {
+      const employee = employees.find(item => row.emp_id
+        ? item.empId === String(row.emp_id).trim().toUpperCase()
+        : item.nameKey === String(row.employee_name).trim().toLowerCase());
+      if (!employee) throw new Error(`Mapping ${row.id} has no matching employee; migration cancelled.`);
+      const aliases = JSON.parse(row.aliases || '[]');
+      if (!Array.isArray(aliases) || aliases.some(alias => typeof alias !== 'string')) {
+        throw new Error(`Mapping ${row.id} has invalid aliases; migration cancelled.`);
       }
-    } else {
-      const definition = schema.find(row => row.type === 'table' && row.name === table);
-      if (!definition) throw new Error(`Source table ${table} is missing.`);
-      await tx.execute(String(definition.sql));
+      return {
+        id: Number(row.id), employeeId: employee.id, empId: employee.empId,
+        employeeName: employee.employeeName, aliases,
+        createdAt: String(row.created_at || now), updatedAt: String(row.updated_at || now),
+      };
+    });
+  } finally {
+    source.close();
+  }
+  if ([...employees, ...mappings].some(row => !Number.isSafeInteger(row.id) || row.id <= 0)) {
+    throw new Error('Source contains invalid numeric IDs; migration cancelled.');
+  }
+  await initializeMongoSchema(database);
+  await client.withSession(session => session.withTransaction(async () => {
+    // Conflict with concurrent application creates rather than replacing data.
+    for (const name of ['employees', 'name_mappings']) {
+      await database.collection('counters').updateOne({ _id: name }, { $inc: { migrationRevision: 1 } }, { session });
+      if (await database.collection(name).countDocuments({}, { session })) {
+        throw new Error(`Destination ${name} is not empty. No records were copied.`);
+      }
     }
-  }
-  for (const [index, table] of tables.entries()) {
-    const rows = snapshot[index + 1].rows;
-    const columns = snapshot[index + 1].columns;
-    const identifiers = columns.map(column => `"${column.replaceAll('"', '""')}"`).join(', ');
-    const placeholders = columns.map(() => '?').join(', ');
-    for (const row of rows) {
-      await tx.execute({
-        sql: `INSERT INTO ${table} (${identifiers}) VALUES (${placeholders})`,
-        args: columns.map(column => row[column]),
-      });
+    if (employees.length) await database.collection('employees').insertMany(employees, { session });
+    if (mappings.length) await database.collection('name_mappings').insertMany(mappings, { session });
+    for (const [name, rows] of [['employees', employees], ['name_mappings', mappings]]) {
+      const maximum = rows.reduce((max, row) => Math.max(max, row.id), 0);
+      await database.collection('counters').updateOne({ _id: name }, { $max: { value: maximum } }, { session });
     }
-  }
-  for (const index of schema.filter(row => row.type === 'index')) {
-    await tx.execute(String(index.sql).replace(/^CREATE (UNIQUE )?INDEX /i, 'CREATE $1INDEX IF NOT EXISTS '));
-  }
-  await tx.commit();
-  console.log(`Migration complete: ${snapshot[1].rows.length} employees, ${snapshot[2].rows.length} mappings.`);
-} catch (error) {
-  if (tx && !tx.closed) await tx.rollback();
-  throw error;
-} finally {
-  tx?.close();
-  source.close();
-  destination.close();
+  }));
+  return { employees: employees.length, mappings: mappings.length };
+}
+
+async function main() {
+  const uri = process.env.MONGODB_URI?.trim();
+  if (!uri || !/^mongodb(?:\+srv)?:\/\//.test(uri)) throw new Error('Configure MONGODB_URI before migrating.');
+  const client = new MongoClient(uri, { serverSelectionTimeoutMS: 10000 });
+  try {
+    await client.connect();
+    const counts = await migrateSqliteToMongo(
+      client, client.db(process.env.MONGODB_DB?.trim() || 'coco'),
+      resolve(process.env.SQLITE_DATABASE_PATH || 'data/coco.db')
+    );
+    console.log(`Migration complete: ${counts.employees} employees, ${counts.mappings} mappings.`);
+  } finally { await client.close(); }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  main().catch(() => {
+    console.error('Migration failed; destination writes were rolled back. Check the connection, network access, source records and that the destination is empty.');
+    process.exitCode = 1;
+  });
 }

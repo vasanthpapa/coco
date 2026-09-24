@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
-    "@libsql/client": "^0.18.0",
     "@types/papaparse": "^5.5.2",
     "date-fns": "^3.6.0",
     "lucide-react": "^0.378.0",
@@ -32,6 +31,7 @@
     "@typescript-eslint/parser": "^7.2.0",
     "autoprefixer": "^10.4.19",
     "eslint": "^8.57.0",
+    "mongodb-memory-server-core": "^11.3.0",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
     "typescript": "^5.2.2"

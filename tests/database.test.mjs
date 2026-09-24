@@ -1,82 +1,189 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { mkdirSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { after, before, test } from 'node:test';
+import { mkdirSync, readFileSync, writeFileSync, mkdtempSync, readdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { MongoMemoryReplSet } from 'mongodb-memory-server-core';
+import { DatabaseSync } from 'node:sqlite';
+import { migrateSqliteToMongo } from '../scripts/migrate-database.mjs';
 import ts from 'typescript';
-import { createClient } from '@libsql/client';
 
-// Exercise the actual adapter against an isolated database, never user data.
 mkdirSync('.test-output', { recursive: true });
-const directory = mkdtempSync(resolve('.test-output/database-'));
-for (const name of ['database', 'databaseSchema']) {
-  const source = readFileSync(`src/lib/${name}.ts`, 'utf8');
-  const { outputText } = ts.transpileModule(source, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
-  });
-  writeFileSync(`${directory}/${name}.js`, outputText.replace("'./databaseSchema'", "'./databaseSchema.js'"));
+const directory = mkdtempSync(resolve('.test-output/mongodb-'));
+function compile(folder) {
+  for (const entry of readdirSync(folder, { withFileTypes: true })) {
+    const file = `${folder}/${entry.name}`;
+    if (entry.isDirectory()) { compile(file); continue; }
+    if (!file.endsWith('.ts')) continue;
+    const output = `${directory}/${file.slice(0, -3)}.js`;
+    mkdirSync(dirname(output), { recursive: true });
+    const { outputText } = ts.transpileModule(readFileSync(file, 'utf8'), {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
+    });
+    writeFileSync(output, outputText.replace(/(from\s+|import\s*)(['"])([^'"]+)\2/g, (match, prefix, quote, specifier) => {
+      if (specifier.startsWith('@/')) specifier = pathToFileURL(`${directory}/${specifier.slice(2)}.js`).href;
+      else if (specifier.startsWith('.') && !/\.[a-z]+$/i.test(specifier)) specifier += '.js';
+      else if (specifier === 'next/server') specifier = 'next/server.js';
+      return `${prefix}${quote}${specifier}${quote}`;
+    }));
+  }
 }
-const moduleUrl = pathToFileURL(`${directory}/database.js`).href;
+for (const folder of ['src/lib', 'src/utils', 'src/app/api']) compile(folder);
+const moduleAt = file => import(pathToFileURL(`${directory}/${file}.js`).href);
+let replica, client, database, store;
 
-test('Vercel rejects missing credentials without creating a local database', async () => {
-  process.env.VERCEL = '1';
-  delete process.env.TURSO_DATABASE_URL;
-  delete process.env.TURSO_AUTH_TOKEN;
-  const { default: db } = await import(`${moduleUrl}?missing`);
-  await assert.rejects(db.prepare('SELECT 1').get(), /Configure TURSO_DATABASE_URL/);
-  process.env.TURSO_DATABASE_URL = 'file:forbidden.db';
-  process.env.TURSO_AUTH_TOKEN = 'test';
-  await assert.rejects(db.prepare('SELECT 1').get(), /Configure TURSO_DATABASE_URL/);
-  delete process.env.VERCEL;
-  delete process.env.TURSO_DATABASE_URL;
-  delete process.env.TURSO_AUTH_TOKEN;
+before(async () => {
+  replica = await MongoMemoryReplSet.create({
+    binary: { downloadDir: resolve('.test-output/mongodb-binaries') },
+    replSet: { count: 1, storageEngine: 'wiredTiger' },
+  });
+  process.env.MONGODB_URI = replica.getUri();
+  process.env.MONGODB_DB = 'coco_test';
+  const connection = await (await moduleAt('src/lib/database')).getDatabase();
+  ({ client, database } = connection);
+  store = await (await moduleAt('src/lib/employeeStore')).getEmployeeStore();
 });
 
-test('schema initialization, concurrent reads, identity changes, rollback and deletion', async () => {
-  process.env.LOCAL_DATABASE_PATH = `${directory}/test.db`;
-  const { default: db } = await import(`${moduleUrl}?local`);
-  const reads = await Promise.all(Array.from({ length: 5 }, () => db.prepare('SELECT * FROM employees').all()));
-  assert.ok(reads.every(rows => rows.length === 0));
-  const inserted = await db.prepare('INSERT INTO employees (emp_id, employee_name) VALUES (?, ?)').run('EMP001', 'Test Employee');
-  assert.equal(inserted.changes, 1);
-  assert.ok(inserted.lastInsertRowid);
-  await db.prepare('INSERT INTO name_mappings (emp_id, employee_name, aliases) VALUES (?, ?, ?)').run('EMP001', 'Test Employee', '["Alias"]');
-  await assert.rejects(db.transaction(async tx => {
-    await tx.prepare('UPDATE employees SET employee_name = ? WHERE emp_id = ?').run('Rolled back', 'EMP001');
-    throw new Error('forced rollback');
-  })(), /forced rollback/);
-  assert.equal((await db.prepare('SELECT employee_name FROM employees').get()).employee_name, 'Test Employee');
-  await db.transaction(async tx => {
-    await tx.prepare('UPDATE employees SET emp_id = ?, employee_name = ?').run('EMP002', 'Renamed');
-    await tx.prepare('UPDATE name_mappings SET emp_id = ?, employee_name = ?').run('EMP002', 'Renamed');
-  })();
-  const row = await db.prepare('SELECT e.employee_name, m.aliases FROM employees e JOIN name_mappings m ON e.emp_id = m.emp_id').get();
-  assert.equal(row.employee_name, 'Renamed');
-  assert.deepEqual(JSON.parse(row.aliases), ['Alias']);
-  await db.transaction(async tx => {
-    await tx.prepare('DELETE FROM name_mappings').run();
-    await tx.prepare('DELETE FROM employees').run();
-  })();
-  assert.deepEqual(await db.prepare('SELECT * FROM employees').all(), []);
-  assert.deepEqual(await db.prepare('SELECT * FROM name_mappings').all(), []);
+after(async () => {
+  await client?.close();
+  delete globalThis.cocoMongo;
+  await replica?.stop();
 });
 
-test('existing SQLite employee records and aliases survive schema migration', async () => {
+async function reset() {
+  await database.collection('name_mappings').deleteMany({});
+  await database.collection('employees').deleteMany({});
+}
+
+test('numeric IDs, case-insensitive uniqueness and concurrent creates', async () => {
+  await reset();
+  const employees = await Promise.all(Array.from({ length: 5 }, (_, i) => store.createEmployee(`EMP${i}`, `Employee ${i}`)));
+  assert.equal(new Set(employees.map(row => row.id)).size, 5);
+  assert.ok(employees.every(row => Number.isSafeInteger(row.id)));
+  await assert.rejects(store.createEmployee('emp0', 'Different'), error => error.code === 11000);
+  await assert.rejects(store.createEmployee('NEW', 'EMPLOYEE 0'), error => error.code === 11000);
+  assert.equal((await store.listEmployees()).length, 5);
+});
+
+test('rename preserves mappings; failed duplicate rename rolls back; reorder and delete', async () => {
+  await reset();
+  const a = await store.createEmployee('EMP001', 'Alpha');
+  const b = await store.createEmployee('EMP002', 'Beta');
+  await store.addAlias('Alpha', 'First Alias');
+  await store.updateEmployee(a.id, 'EMP003', 'Renamed');
+  assert.equal((await store.listMappings())[0].empId, 'EMP003');
+  await assert.rejects(store.updateEmployee(a.id, 'EMP002', 'Invalid'), error => error.code === 11000);
+  assert.equal((await store.listMappings())[0].employeeName, 'Renamed');
+  assert.equal((await store.listEmployees()).find(row => row.id === a.id).empId, 'EMP003');
+  await store.reorderEmployees([b.id, a.id]);
+  assert.deepEqual((await store.listEmployees()).map(row => row.id), [b.id, a.id]);
+  await assert.rejects(store.reorderEmployees([a.id, 999999]), error => error.status === 404);
+  assert.deepEqual((await store.listEmployees()).map(row => row.id), [b.id, a.id]);
+  await store.deleteEmployee(a.id);
+  assert.deepEqual(await store.listMappings(), []);
+});
+
+test('concurrent aliases, duplicate rejection, reassignment and removal', async () => {
+  await reset();
+  await store.createEmployee('EMP001', 'Alpha');
+  await store.createEmployee('EMP002', 'Beta');
+  await Promise.all(['One', 'Two', 'Three'].map(alias => store.addAlias('alpha', alias)));
+  const [mapping] = await store.listMappings();
+  assert.equal(mapping.aliases.length, 3);
+  await assert.rejects(store.addAlias('Alpha', 'ONE'), error => error.status === 409);
+  await store.updateMapping(mapping.id, 'Beta', ['New', 'Other']);
+  assert.equal((await store.listMappings())[0].employeeName, 'Beta');
+  await store.removeAlias(mapping.id, 'OTHER');
+  assert.deepEqual((await store.listMappings())[0].aliases, ['New']);
+  const result = await store.deleteMappingByEmployee('Beta');
+  assert.equal(result.deleted, true);
+  assert.deepEqual(await store.listMappings(), []);
+});
+
+test('actual API handlers preserve JSON contracts and analysis works with MongoDB', async () => {
+  await reset();
+  const employees = await moduleAt('src/app/api/employees/route');
+  const mappings = await moduleAt('src/app/api/name-mappings/route');
+  const analysis = await moduleAt('src/app/api/analyze/route');
+  const request = (body, method = 'POST') => new Request('http://localhost/api/test', {
+    method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  let response = await employees.POST(request({ empId: 'EMP001', employeeName: 'API Employee' }));
+  assert.equal(response.status, 201);
+  const employee = await response.json();
+  assert.equal(employee.active, true);
+  assert.ok(!('_id' in employee));
+  response = await employees.POST(request({ empId: 'EMP001', employeeName: 'Duplicate' }));
+  assert.equal(response.status, 409);
+  response = await mappings.POST(request({ employeeName: 'API Employee', alias: 'Alias' }));
+  assert.equal(response.status, 201);
+  assert.deepEqual((await (await mappings.GET()).json())[0].aliases, ['Alias']);
+  for (const body of [
+    { type: 'csv', text: 'name,value\nTest,1' },
+    { type: 'json', text: '[{"name":"Test","value":1}]' },
+    { type: 'whatsapp', text: '[24/09/2026, 09:00:00] Alias: in' },
+  ]) {
+    response = await analysis.POST(request(body));
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).success, true);
+  }
+  response = await employees.POST(request({}));
+  assert.equal(response.status, 400);
+});
+
+test('missing or malformed configuration returns JSON without leaking credentials', async () => {
+  const uri = process.env.MONGODB_URI;
+  const saved = globalThis.cocoMongo;
+  const employees = await moduleAt('src/app/api/employees/route');
+  try {
+    delete globalThis.cocoMongo;
+    delete process.env.MONGODB_URI;
+    let response = await employees.GET();
+    assert.equal(response.status, 503);
+    assert.match((await response.json()).error, /MONGODB_URI/);
+    process.env.MONGODB_URI = 'mongodb+srv://bad:secret@invalid@@host/';
+    response = await employees.GET();
+    assert.equal(response.status, 503);
+    assert.ok(!(await response.text()).includes('secret'));
+  } finally {
+    process.env.MONGODB_URI = uri;
+    globalThis.cocoMongo = saved;
+  }
+});
+
+test('SQLite migration preserves records, advances IDs and refuses an occupied destination', async () => {
+  await reset();
   const file = `${directory}/legacy.db`;
-  const seed = createClient({ url: pathToFileURL(file).href });
-  await seed.batch([
-    `CREATE TABLE employees (id INTEGER PRIMARY KEY AUTOINCREMENT, employee_name TEXT NOT NULL UNIQUE, sort_order INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)`,
-    `CREATE TABLE name_mappings (id INTEGER PRIMARY KEY AUTOINCREMENT, employee_name TEXT NOT NULL UNIQUE, aliases TEXT NOT NULL DEFAULT '[]', created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)`,
-    "INSERT INTO employees (employee_name) VALUES ('Existing Employee')",
-    `INSERT INTO name_mappings (employee_name, aliases) VALUES ('Existing Employee', '["Existing Alias"]')`,
-  ], 'write');
-  seed.close();
-  process.env.LOCAL_DATABASE_PATH = file;
-  const { default: db } = await import(`${moduleUrl}?legacy`);
-  const employee = await db.prepare('SELECT * FROM employees').get();
-  const mapping = await db.prepare('SELECT * FROM name_mappings').get();
-  assert.equal(employee.employee_name, 'Existing Employee');
-  assert.equal(employee.emp_id, 'EMP001');
-  assert.equal(mapping.emp_id, employee.emp_id);
-  assert.deepEqual(JSON.parse(mapping.aliases), ['Existing Alias']);
+  const sqlite = new DatabaseSync(file);
+  sqlite.exec(`
+    CREATE TABLE employees (id INTEGER PRIMARY KEY, emp_id TEXT, employee_name TEXT, sort_order INTEGER, active INTEGER);
+    CREATE TABLE name_mappings (id INTEGER PRIMARY KEY, emp_id TEXT, employee_name TEXT, aliases TEXT);
+    INSERT INTO employees VALUES (50, 'EMP050', 'Imported Employee', 0, 1);
+    INSERT INTO name_mappings VALUES (70, 'EMP050', 'Imported Employee', '["Imported Alias"]');
+  `);
+  sqlite.close();
+  assert.deepEqual(await migrateSqliteToMongo(client, database, file), { employees: 1, mappings: 1 });
+  const [employee] = await store.listEmployees();
+  assert.equal(employee.id, 50);
+  assert.deepEqual((await store.listMappings())[0].aliases, ['Imported Alias']);
+  assert.equal((await store.createEmployee('EMP051', 'Next Employee')).id, 51);
+  assert.equal((await store.addAlias('Next Employee', 'Next')).mapping.id, 71);
+  await assert.rejects(migrateSqliteToMongo(client, database, file), /not empty/);
+  assert.equal((await store.listEmployees()).length, 2);
+});
+
+test('invalid source mappings abort migration without partial destination records', async () => {
+  await reset();
+  const file = `${directory}/orphan.db`;
+  const sqlite = new DatabaseSync(file);
+  sqlite.exec(`
+    CREATE TABLE employees (id INTEGER PRIMARY KEY, emp_id TEXT, employee_name TEXT, sort_order INTEGER, active INTEGER);
+    CREATE TABLE name_mappings (id INTEGER PRIMARY KEY, emp_id TEXT, employee_name TEXT, aliases TEXT);
+    INSERT INTO employees VALUES (1, 'EMP001', 'One', 0, 1);
+    INSERT INTO name_mappings VALUES (1, 'MISSING', 'Missing', '["Alias"]');
+  `);
+  sqlite.close();
+  await assert.rejects(migrateSqliteToMongo(client, database, file), /no matching employee/);
+  assert.deepEqual(await store.listEmployees(), []);
+  assert.deepEqual(await store.listMappings(), []);
 });
