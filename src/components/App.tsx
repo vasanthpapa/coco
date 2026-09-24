@@ -420,6 +420,18 @@ useEffect(() => {
 
         if (!mounted) return;
 
+        // Analysis runs in this page, so processing records from a previous
+        // session are interrupted jobs, not work that is still running.
+        for (const record of saved) {
+          if (record.kind !== 'batch' && record.status === 'processing') {
+            record.status = 'ready';
+            record.error = undefined;
+            await saveStoredAnalysis(record);
+          }
+        }
+
+        if (!mounted) return;
+
         const sorted = [...saved].sort(
           (a, b) =>
             new Date(b.uploadedAt).getTime() -
@@ -851,7 +863,8 @@ const prepareFile = async (
     type: fileType,
     sourceType: type,
     sourceText: analysisText,
-    status: 'processing',
+    // The source is saved and ready to retry even if automatic analysis fails.
+    status: 'ready',
     uploadedAt: now,
     data: [],
     attendanceData: [],
@@ -868,7 +881,7 @@ const prepareFile = async (
       name: file.name,
       size: file.size,
       type: fileType,
-      status: 'processing',
+      status: 'ready',
       uploadedAt: now,
     },
     ...previous,
@@ -1034,7 +1047,7 @@ setSourceType(result.type);
 };
 
 const handleAnalyzeSelectedFiles = async () => {
-  if (selectedFileIds.length === 0) {
+  if (isLoading || selectedFileIds.length === 0) {
     return;
   }
 
@@ -1222,6 +1235,21 @@ const handleAnalyzeSelectedFiles = async () => {
 
     await saveStoredAnalysis(batch);
 
+    for (const record of selectedRecords) {
+      await saveStoredAnalysis({
+        ...record,
+        status: 'completed',
+        error: undefined,
+      });
+    }
+
+    const completedIds = new Set(selectedRecords.map(record => record.id));
+    setUploadedFiles(previous => previous.map(file =>
+      completedIds.has(file.id)
+        ? { ...file, status: 'completed', error: undefined }
+        : file
+    ));
+
     setActiveBatchId(batchId);
     setSourceText(combinedText);
     setSourceType(result.type);
@@ -1254,7 +1282,7 @@ const handleAnalyzeSelectedFiles = async () => {
 const handleUpload = async (
   files: File[]
 ) => {
-  if (!files.length) return;
+  if (isLoading || !files.length) return;
 
   setError(null);
   setIsLoading(true);
