@@ -372,11 +372,16 @@ const dateAttendance = useMemo(() => {
   const attendanceByEmployeeName =
     new Map<string, AttendanceRecord>();
 
+  const matchedRecords =
+    new Set<AttendanceRecord>();
+
   selectedDateRecords.forEach(record => {
     const employee =
       getEmployeeForRecord(record);
 
     if (employee) {
+      matchedRecords.add(record);
+
       attendanceByEmployeeId.set(
         employee.empId.trim().toLowerCase(),
         record
@@ -400,7 +405,7 @@ const dateAttendance = useMemo(() => {
 
   // Build the table from employee master.
   // Employees without attendance still get a "-" row.
-  const mergedAttendance =
+  const employeeAttendance =
     employeeRecords
       .filter(employee => employee.active)
       .map(employee => {
@@ -439,6 +444,25 @@ const dateAttendance = useMemo(() => {
           date: selectedDateISO,
         };
       });
+
+  // Never hide successfully parsed attendance just because the hosted
+  // employee master is empty, unavailable, or does not contain that sender.
+  const unmatchedAttendance =
+    selectedDateRecords
+      .filter(record => !matchedRecords.has(record))
+      .map(record => ({
+        ...record,
+        name:
+          resolveOriginalEmployeeName(
+            record.name,
+            nameMappings
+          ) || record.name,
+      }));
+
+  const mergedAttendance = [
+    ...employeeAttendance,
+    ...unmatchedAttendance,
+  ];
 
   return mergedAttendance.sort((a, b) => {
     const empIdA = String(a.empId || '');

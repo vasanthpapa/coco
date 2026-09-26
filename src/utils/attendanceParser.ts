@@ -33,21 +33,29 @@ function isWeekOffText(text: string): boolean {
 
 function isCheckInText(text: string): boolean {
   const lowerText = text.trim().toLowerCase();
+  const normalizedText = normalizeAttendanceText(text);
+
   return (
-    lowerText.includes('check in') ||
-    lowerText.includes('checkin') ||
-    lowerText.includes('login') ||
-    lowerText === 'in'
+    isSpecificCheckInText(text) ||
+    /\blog\s*in\b/.test(lowerText) ||
+    /\blogged\s*in\b/.test(lowerText) ||
+    normalizedText === 'in' ||
+    normalizedText === 'iamin' ||
+    normalizedText === 'imin'
   );
 }
 
 function isCheckOutText(text: string): boolean {
   const lowerText = text.trim().toLowerCase();
+  const normalizedText = normalizeAttendanceText(text);
+
   return (
-    lowerText.includes('check out') ||
-    lowerText.includes('checkout') ||
-    lowerText.includes('logout') ||
-    lowerText === 'out'
+    isSpecificCheckOutText(text) ||
+    /\blog\s*out\b/.test(lowerText) ||
+    /\blogged\s*out\b/.test(lowerText) ||
+    normalizedText === 'out' ||
+    normalizedText === 'iamout' ||
+    normalizedText === 'imout'
   );
 }
 
@@ -546,19 +554,11 @@ export function parseAttendance(
       msg.date || targetDate || ''
     ).trim();
 
-    // Normalize once instead of doing it twice.
-    const normalizedAttendanceText =
-      normalizeAttendanceText(text);
-
     const specificCheckIn =
-      normalizedAttendanceText.includes(
-        'checkin'
-      );
+      isCheckInText(text);
 
     const specificCheckOut =
-      normalizedAttendanceText.includes(
-        'checkout'
-      );
+      isCheckOutText(text);
 
     const halfDay =
       isHalfDayText(text);
