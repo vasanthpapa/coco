@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Save,
   Trash2,
@@ -28,7 +28,13 @@ import {
   type EmployeeRecord,
 } from '../utils/employeeApi';
 
-export default function EmployeeMapping() {
+interface EmployeeMappingProps {
+  analyzedNames?: string[];
+}
+
+export default function EmployeeMapping({
+  analyzedNames = [],
+}: EmployeeMappingProps) {
   const [savedName, setSavedName] = useState('');
   const [officialEmpId, setOfficialEmpId] = useState('');
 
@@ -39,6 +45,41 @@ export default function EmployeeMapping() {
     useState<NameMapping[]>([]);
 
   const employees = employeeRecords;
+
+  const availableAnalyzedNames = useMemo(() => {
+    const mappedNames = new Set(
+      mappings.flatMap(mapping =>
+        mapping.aliases.map(alias =>
+          alias.trim().toLowerCase()
+        )
+      )
+    );
+
+    const uniqueNames = new Map<string, string>();
+
+    analyzedNames.forEach(name => {
+      const cleanName = String(name || '').trim();
+
+      if (!cleanName) {
+        return;
+      }
+
+      const key = cleanName.toLowerCase();
+
+      if (
+        !mappedNames.has(key) &&
+        !uniqueNames.has(key)
+      ) {
+        uniqueNames.set(key, cleanName);
+      }
+    });
+
+    return Array.from(uniqueNames.values()).sort((a, b) =>
+      a.localeCompare(b, undefined, {
+        sensitivity: 'base',
+      })
+    );
+  }, [analyzedNames, mappings]);
 
   const [editingEmployeeId, setEditingEmployeeId] =
     useState<number | null>(null);
@@ -282,7 +323,7 @@ setShowAddEmployee(false);
 
     if (!cleanSavedName) {
       showError(
-        'Please enter a WhatsApp saved name.'
+        'Please select an analyzed WhatsApp name.'
       );
       return;
     }
@@ -1010,22 +1051,37 @@ const filteredEmployees = employees
                 WhatsApp Saved Name
               </label>
 
-              <input
-                type="text"
+              <select
                 value={savedName}
                 onChange={e =>
                   setSavedName(
                     e.target.value
                   )
                 }
-                onKeyDown={e => {
-                  if (e.key === 'Enter') {
-                    handleSaveMapping();
-                  }
-                }}
-                placeholder="Example: Rider Kid"
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder:text-slate-500 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition"
-              />
+                disabled={
+                  isSaving ||
+                  availableAnalyzedNames.length === 0
+                }
+                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <option value="">
+                  {availableAnalyzedNames.length > 0
+                    ? 'Select analyzed name'
+                    : analyzedNames.length > 0
+                      ? 'All analyzed names are mapped'
+                      : 'Analyze WhatsApp data first'}
+                </option>
+
+                {availableAnalyzedNames.map(name => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-1.5 text-xs text-slate-500">
+                Names detected from the current WhatsApp analysis
+              </p>
             </div>
 
             <div>

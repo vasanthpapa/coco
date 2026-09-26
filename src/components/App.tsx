@@ -353,6 +353,33 @@ const [mappings, setMappings] =
   useState<string[]>([]);
 const [activeBatchId, setActiveBatchId] =
   useState<string | null>(null);
+  const analyzedWhatsAppNames = useMemo(() => {
+    if (sourceType !== 'whatsapp') {
+      return [];
+    }
+
+    const names = new Map<string, string>();
+
+    data.forEach(row => {
+      const sender = String(row?.sender || '').trim();
+
+      if (!sender) {
+        return;
+      }
+
+      const key = sender.toLowerCase();
+
+      if (!names.has(key)) {
+        names.set(key, sender);
+      }
+    });
+
+    return Array.from(names.values()).sort((a, b) =>
+      a.localeCompare(b, undefined, {
+        sensitivity: 'base',
+      })
+    );
+  }, [data, sourceType]);
   const selectedFileName = useMemo(() => {
   if (selectedFileIds.length === 0) {
     return 'Analysis Results';
@@ -2058,7 +2085,11 @@ localStorage.setItem(
   />
 )} */}
             {activeModule === 'employee_mapping' && (
-              <EmployeeMapping />
+              <EmployeeMapping
+                analyzedNames={
+                  analyzedWhatsAppNames
+                }
+              />
             )}
           </section>
           {showScrollTop && (
