@@ -13,6 +13,9 @@ import {
 } from 'lucide-react';
 
 import ConfirmModal from './ConfirmModal';
+import {
+  normalizeNameForComparison,
+} from '../utils/attendanceUtils';
 
 import {
   addEmployee,
@@ -50,7 +53,7 @@ export default function EmployeeMapping({
     const mappedNames = new Set(
       mappings.flatMap(mapping =>
         mapping.aliases.map(alias =>
-          alias.trim().toLowerCase()
+          normalizeNameForComparison(alias)
         )
       )
     );
@@ -64,7 +67,8 @@ export default function EmployeeMapping({
         return;
       }
 
-      const key = cleanName.toLowerCase();
+      const key =
+        normalizeNameForComparison(cleanName);
 
       if (
         !mappedNames.has(key) &&
@@ -355,8 +359,8 @@ setShowAddEmployee(false);
       mappings.find(mapping =>
         mapping.aliases.some(
           alias =>
-            alias.trim().toLowerCase() ===
-            cleanSavedName.toLowerCase()
+            normalizeNameForComparison(alias) ===
+            normalizeNameForComparison(cleanSavedName)
         )
       );
 
@@ -419,8 +423,8 @@ setShowAddEmployee(false);
         item.empId === employee.empId &&
         item.aliases.some(
           alias =>
-            alias.trim().toLowerCase() ===
-            savedNameToEdit.trim().toLowerCase()
+            normalizeNameForComparison(alias) ===
+            normalizeNameForComparison(savedNameToEdit)
         )
     );
 
@@ -489,8 +493,8 @@ setShowAddEmployee(false);
       mappings.find(mapping =>
         mapping.aliases.some(alias => {
           const sameAlias =
-            alias.trim().toLowerCase() ===
-            cleanSavedName.toLowerCase();
+            normalizeNameForComparison(alias) ===
+            normalizeNameForComparison(cleanSavedName);
 
           if (!sameAlias) {
             return false;
@@ -499,10 +503,10 @@ setShowAddEmployee(false);
           if (
             !isAddingMapping &&
             mapping.id === editingMappingId &&
-            alias.trim().toLowerCase() ===
-              editingOriginalSavedName
-                .trim()
-                .toLowerCase()
+            normalizeNameForComparison(alias) ===
+              normalizeNameForComparison(
+                editingOriginalSavedName
+              )
           ) {
             return false;
           }
@@ -540,10 +544,10 @@ setShowAddEmployee(false);
 
         const updatedAliases =
           mapping.aliases.map(alias =>
-            alias.trim().toLowerCase() ===
-            editingOriginalSavedName
-              .trim()
-              .toLowerCase()
+            normalizeNameForComparison(alias) ===
+            normalizeNameForComparison(
+              editingOriginalSavedName
+            )
               ? cleanSavedName
               : alias
           );
@@ -888,8 +892,8 @@ setShowAddEmployee(false);
         item =>
           item.aliases.some(
             alias =>
-              alias.trim().toLowerCase() ===
-              target.trim().toLowerCase()
+              normalizeNameForComparison(alias) ===
+              normalizeNameForComparison(target)
           )
       );
 
@@ -915,8 +919,8 @@ setShowAddEmployee(false);
                     aliases:
                       item.aliases.filter(
                         alias =>
-                          alias.trim().toLowerCase() !==
-                          target.trim().toLowerCase()
+                          normalizeNameForComparison(alias) !==
+                          normalizeNameForComparison(target)
                       ),
                   }
                 : item

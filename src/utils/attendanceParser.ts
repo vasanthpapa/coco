@@ -410,6 +410,18 @@ function resolveAttendanceEmployee(
     return explicitName;
   }
 
+  const mentionedNames = getAppliesToNames(
+    msg,
+    allNames,
+    mappings,
+    resolver,
+    false
+  );
+
+  if (mentionedNames.length > 0) {
+    return mentionedNames[0];
+  }
+
   return normalizeAttendanceSenderName(
     sender,
     allNames,
@@ -513,10 +525,9 @@ export function parseAttendance(
     new Set([
       ...employeeNames,
       ...CUSTOM_NAME_ORDER,
-      ...data
-        .map(row => row?.sender)
-        .filter(Boolean)
-        .map(String),
+      ...mappings.map(mapping =>
+        mapping.employeeName
+      ),
     ])
   );
 

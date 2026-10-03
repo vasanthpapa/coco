@@ -1,7 +1,19 @@
 import React, { useMemo } from 'react';
+import { formatDateDDMMYY } from '../utils/attendanceUtils';
 
 interface DataTableProps {
   data: Record<string, any>[];
+}
+
+function formatCellValue(
+  column: string,
+  value: unknown
+): string {
+  const rawValue = String(value ?? '');
+
+  return column.trim().toLowerCase() === 'date'
+    ? formatDateDDMMYY(rawValue)
+    : rawValue;
 }
 
 export default function DataTable({
@@ -80,21 +92,26 @@ export default function DataTable({
                   transition-colors
                 "
               >
-                {columns.map(col => (
-                  <td
-                    key={col}
-                    className="
-                      px-6
-                      py-3
-                      whitespace-nowrap
-                      max-w-xs
-                      truncate
-                    "
-                    title={String(row[col] ?? '')}
-                  >
-                    {String(row[col] ?? '')}
-                  </td>
-                ))}
+                {columns.map(col => {
+                  const displayValue =
+                    formatCellValue(col, row[col]);
+
+                  return (
+                    <td
+                      key={col}
+                      className="
+                        px-6
+                        py-3
+                        whitespace-nowrap
+                        max-w-xs
+                        truncate
+                      "
+                      title={displayValue}
+                    >
+                      {displayValue}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>

@@ -64,7 +64,7 @@ function lowerName(name: string): string {
   return cleanName(name).toLowerCase();
 }
 
-function normalizeNameForComparison(name: string): string {
+export function normalizeNameForComparison(name: string): string {
   return lowerName(name).replace(/[^a-z0-9]/g, '');
 }
 
@@ -133,6 +133,12 @@ export function createNameResolver(
   for (const mapping of mappings) {
     const employeeName = cleanName(mapping.employeeName);
 
+    if (employeeName) {
+      knownNameKeys.add(
+        normalizeNameForComparison(employeeName)
+      );
+    }
+
     for (const alias of mapping.aliases || []) {
       const cleanAlias = cleanName(alias);
 
@@ -140,9 +146,10 @@ export function createNameResolver(
         continue;
       }
 
-      const key = cleanAlias.toLowerCase();
+      const key =
+        normalizeNameForComparison(cleanAlias);
 
-      if (!aliasMap.has(key)) {
+      if (key && !aliasMap.has(key)) {
         aliasMap.set(key, employeeName);
       }
     }
@@ -203,7 +210,14 @@ export function createNameResolver(
 
     const lower = clean.toLowerCase();
 
-    const mappedName = aliasMap.get(lower);
+    const normalizedInput =
+      normalizeNameForComparison(clean);
+
+    if (!normalizedInput) {
+      return clean;
+    }
+
+    const mappedName = aliasMap.get(normalizedInput);
 
     if (mappedName !== undefined) {
       return mappedName;
@@ -215,17 +229,34 @@ export function createNameResolver(
       return exactName;
     }
 
-    const normalizedInput =
-      normalizeNameForComparison(clean);
-
-    if (!normalizedInput) {
-      return clean;
-    }
-
     const cached = fuzzyCache.get(normalizedInput);
 
     if (cached !== undefined) {
       return cached;
+    }
+
+    if (normalizedInput.length >= 4) {
+      const prefixMatches = new Set(
+        fuzzyCandidates
+          .filter(candidate =>
+            candidate.normalized.startsWith(
+              normalizedInput
+            )
+          )
+          .map(candidate => candidate.name)
+      );
+
+      if (prefixMatches.size === 1) {
+        const prefixMatch =
+          Array.from(prefixMatches)[0];
+
+        fuzzyCache.set(
+          normalizedInput,
+          prefixMatch
+        );
+
+        return prefixMatch;
+      }
     }
 
     let bestMatch = '';
@@ -299,7 +330,9 @@ export function createNameResolver(
     }
 
     return (
-      aliasMap.get(clean.toLowerCase()) ||
+      aliasMap.get(
+        normalizeNameForComparison(clean)
+      ) ||
       clean
     );
   };
@@ -362,13 +395,14 @@ export function resolveOriginalEmployeeName(
     return '';
   }
 
-  const lower = clean.toLowerCase();
+  const comparisonKey =
+    normalizeNameForComparison(clean);
 
   for (const mapping of mappings) {
     for (const alias of mapping.aliases || []) {
       if (
-        cleanName(alias).toLowerCase() ===
-        lower
+        normalizeNameForComparison(alias) ===
+        comparisonKey
       ) {
         return mapping.employeeName;
       }
@@ -476,7 +510,8 @@ export function getAppliesToNames(
   msg: Record<string, any>,
   allNames: string[],
   mappings: NameMapping[] = [],
-  resolver?: NameResolver
+  resolver?: NameResolver,
+  fallbackToSender = true
 ): string[] {
   if (!msg) {
     return [];
@@ -489,7 +524,7 @@ export function getAppliesToNames(
     createNameResolver(allNames, mappings);
 
   if (!message) {
-    return sender
+    return fallbackToSender && sender
       ? [nameResolver.resolveOriginal(sender)]
       : [];
   }
@@ -517,6 +552,8 @@ export function getAppliesToNames(
   }
 
   const mentioned: string[] = [];
+  const normalizedMessage =
+    normalizeNameForComparison(message);
 
   for (const name of namesToCheck) {
     const escapedName = name.replace(
@@ -529,7 +566,17 @@ export function getAppliesToNames(
       'i'
     );
 
-    if (regex.test(message)) {
+    const normalizedName =
+      normalizeNameForComparison(name);
+
+    const matchesIgnoringSpacing =
+      normalizedName.length >= 5 &&
+      normalizedMessage.includes(normalizedName);
+
+    if (
+      regex.test(message) ||
+      matchesIgnoringSpacing
+    ) {
       const resolved =
         nameResolver.resolveOriginal(name);
 
@@ -567,7 +614,7 @@ export function getAppliesToNames(
     ];
   }
 
-  return sender
+  return fallbackToSender && sender
     ? [nameResolver.resolveOriginal(sender)]
     : [];
 }

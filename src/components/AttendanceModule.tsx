@@ -18,6 +18,7 @@ import {
 
 import {
   convertRawDateToISO,
+  normalizeNameForComparison,
   resolveOriginalEmployeeName,
 } from '../utils/attendanceUtils';
 
@@ -313,14 +314,16 @@ const dateAttendance = useMemo(() => {
       return undefined;
     }
 
-    const lowerName = cleanName.toLowerCase();
+    const comparisonKey =
+      normalizeNameForComparison(cleanName);
 
     // Check alias mapping first.
     const mapping = nameMappings.find(mapping =>
       mapping.aliases?.some(
         alias =>
-          String(alias || '').trim().toLowerCase() ===
-          lowerName
+          normalizeNameForComparison(
+            String(alias || '')
+          ) === comparisonKey
       )
     );
 
@@ -340,8 +343,9 @@ const dateAttendance = useMemo(() => {
     // Direct employee name match.
     return employeeRecords.find(
       employee =>
-        employee.employeeName.trim().toLowerCase() ===
-        lowerName
+        normalizeNameForComparison(
+          employee.employeeName
+        ) === comparisonKey
     );
   };
 
@@ -397,7 +401,7 @@ const dateAttendance = useMemo(() => {
 
     if (resolvedName) {
       attendanceByEmployeeName.set(
-        resolvedName.trim().toLowerCase(),
+        normalizeNameForComparison(resolvedName),
         record
       );
     }
@@ -413,7 +417,9 @@ const dateAttendance = useMemo(() => {
           employee.empId.trim().toLowerCase();
 
         const employeeNameKey =
-          employee.employeeName.trim().toLowerCase();
+          normalizeNameForComparison(
+            employee.employeeName
+          );
 
         const attendance =
           attendanceByEmployeeId.get(

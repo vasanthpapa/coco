@@ -3,6 +3,13 @@ import { getDatabase } from './database';
 import { DataError, numericId, requiredText } from './dataErrors';
 import type { CounterDocument, EmployeeDocument, MappingDocument } from './mongoSchema';
 
+function aliasKey(value: unknown): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
 export function publicEmployee(row: EmployeeDocument) {
   return {
     id: row.id, empId: row.empId, employeeName: row.employeeName,
@@ -125,7 +132,7 @@ export class EmployeeStore {
     return this.transaction(async session => {
       const employee = await this.mappingEmployee(name, session);
       const existing = await this.mappings.findOne({ employeeId: employee.id }, { session });
-      if (existing?.aliases.some(item => item.toLowerCase() === alias.toLowerCase())) {
+      if (existing?.aliases.some(item => aliasKey(item) === aliasKey(alias))) {
         throw new DataError(`"${alias}" is already mapped.`, 409);
       }
       const now = new Date().toISOString();
@@ -149,7 +156,7 @@ export class EmployeeStore {
   async updateMapping(value: unknown, name: unknown, values: unknown) {
     const id = numericId(value);
     const aliases = Array.isArray(values) ? values.map(String).map(item => item.trim()).filter(Boolean) : [];
-    if (new Set(aliases.map(item => item.toLowerCase())).size !== aliases.length) {
+    if (new Set(aliases.map(aliasKey)).size !== aliases.length) {
       throw new DataError('Duplicate aliases are not allowed.', 409);
     }
     return this.transaction(async session => {
@@ -169,7 +176,7 @@ export class EmployeeStore {
     return this.transaction(async session => {
       const existing = await this.mappings.findOne({ id }, { session });
       if (!existing) throw new DataError('Mapping not found.', 404);
-      const aliases = existing.aliases.filter(item => item.toLowerCase() !== alias.toLowerCase());
+      const aliases = existing.aliases.filter(item => aliasKey(item) !== aliasKey(alias));
       if (aliases.length === existing.aliases.length) throw new DataError(`"${alias}" is not mapped.`, 404);
       const mapping = await this.mappings.findOneAndUpdate({ id }, {
         $set: { aliases, updatedAt: new Date().toISOString() },
