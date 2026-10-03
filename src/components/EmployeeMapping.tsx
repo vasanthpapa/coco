@@ -1291,103 +1291,50 @@ const filteredEmployees = employees
                           employee.empId
                         );
 
-                      const isEditing =
+                      const isMappingEditing =
                         editingEmployee ===
                         employee.empId;
 
-                      if (isEditing) {
+                      if (isMappingEditing) {
                         return (
                           <tr
                             key={employee.empId}
                             className="bg-primary/[0.03]"
                           >
-                            <td className="px-5 py-4">
-                              <div className="flex flex-col gap-2 min-w-[220px]">
-                                <input
-                                  type="text"
-                                  value={
-                                    editingEmployeeEmpId
-                                  }
-                                  onChange={e =>
-                                    setEditingEmployeeEmpId(
-                                      e.target.value
-                                    )
-                                  }
-                                  onKeyDown={e => {
-                                    if (
-                                      e.key ===
-                                      'Enter'
-                                    ) {
-                                      handleSaveEmployee();
-                                    }
+                            <td className="px-5 py-4 align-top">
+                              <div className="flex flex-col">
+                                <span className="text-xs font-medium text-primary">
+                                  {employee.empId}
+                                </span>
 
-                                    if (
-                                      e.key ===
-                                      'Escape'
-                                    ) {
-                                      cancelEditEmployee();
-                                    }
-                                  }}
-                                  autoFocus
-                                  placeholder="Employee ID"
-                                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-primary placeholder:text-slate-500 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
-                                />
-
-                                <input
-                                  type="text"
-                                  value={
-                                    editingEmployeeName
-                                  }
-                                  onChange={e =>
-                                    setEditingEmployeeName(
-                                      e.target.value
-                                    )
-                                  }
-                                  onKeyDown={e => {
-                                    if (
-                                      e.key ===
-                                      'Enter'
-                                    ) {
-                                      handleSaveEmployee();
-                                    }
-
-                                    if (
-                                      e.key ===
-                                      'Escape'
-                                    ) {
-                                      cancelEditEmployee();
-                                    }
-                                  }}
-                                  placeholder="Employee name"
-                                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
-                                />
+                                <span className="text-sm font-medium text-white">
+                                  {employee.employeeName}
+                                </span>
                               </div>
                             </td>
 
-                            <td className="px-5 py-4">
-                              <div className="flex flex-wrap gap-2">
-                                {mappedSavedNames.length >
-                                0 ? (
-                                  mappedSavedNames.map(
-                                    savedNameItem => (
-                                      <span
-                                        key={
-                                          savedNameItem
-                                        }
-                                        className="inline-flex items-center rounded-lg bg-primary/10 border border-primary/10 px-2.5 py-1 text-sm text-primary"
-                                      >
-                                        {
-                                          savedNameItem
-                                        }
-                                      </span>
-                                    )
+                            <td className="px-5 py-4 align-top">
+                              <input
+                                type="text"
+                                value={editingSavedName}
+                                onChange={e =>
+                                  setEditingSavedName(
+                                    e.target.value
                                   )
-                                ) : (
-                                  <span className="text-sm text-slate-600 italic">
-                                    Not mapped
-                                  </span>
-                                )}
-                              </div>
+                                }
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    handleInlineSave();
+                                  }
+
+                                  if (e.key === 'Escape') {
+                                    cancelEditMapping();
+                                  }
+                                }}
+                                autoFocus
+                                placeholder="WhatsApp saved name"
+                                className="w-full min-w-[220px] bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                              />
                             </td>
 
                             <td className="px-5 py-4 align-top">
@@ -1395,15 +1342,18 @@ const filteredEmployees = employees
                                 <button
                                   type="button"
                                   onClick={
-                                    handleSaveEmployee
+                                    handleInlineSave
                                   }
                                   disabled={
                                     isSaving ||
-                                    !editingEmployeeEmpId.trim() ||
-                                    !editingEmployeeName.trim()
+                                    !editingSavedName.trim()
                                   }
                                   className="px-2.5 py-2 rounded-lg text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1.5"
-                                  title="Save employee changes"
+                                  title={
+                                    isAddingMapping
+                                      ? 'Save mapping'
+                                      : 'Save mapping changes'
+                                  }
                                 >
                                   {isSaving ? (
                                     <span className="text-xs font-medium">
@@ -1423,7 +1373,7 @@ const filteredEmployees = employees
                                 <button
                                   type="button"
                                   onClick={
-                                    cancelEditEmployee
+                                    cancelEditMapping
                                   }
                                   className="p-2 rounded-lg text-slate-500 hover:text-white hover:bg-slate-700 transition"
                                   title="Cancel"
