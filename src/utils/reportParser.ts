@@ -1,8 +1,12 @@
 import {
   AttendanceRecord,
+  CUSTOM_NAME_ORDER,
+  createNameResolver,
+  normalizeNameForComparison,
   sortByName,
   timeToMinutes,
   convertRawDateToISO,
+  type NameMapping,
 } from './attendanceUtils';
 import { PenaltyRecord } from './penaltyParser';
 
@@ -15,12 +19,115 @@ export interface SummaryRecord {
   count1:number;
   count2:number;
   count3:number;
+  permission:number;
+  halfDay:number;
+  weekOff:number;
   total:number;
 }
 
 export interface TimeZone {
   start:string;
   end:string;
+}
+
+function getAttendanceTimes(
+  times: string[] | undefined,
+  fallback: string
+): string[] {
+  const values = Array.isArray(times)
+    ? times
+    : [];
+
+  return Array.from(
+    new Set(
+      [...values, fallback]
+        .map(value => String(value || '').trim())
+        .filter(value => value && value !== '-')
+    )
+  );
+}
+
+function hasPermission(value: string): boolean {
+  const cleanValue = String(value || '').trim();
+  return Boolean(cleanValue && cleanValue !== '-');
+}
+
+/*
+ * Advanced Reports must use one canonical row per employee/date, just like
+ * WhatsApp Attendance. This also keeps status fields when older/stored data
+ * contains separate alias rows for the same official employee.
+ */
+export function normalizeReportAttendanceData(
+  attendanceData: AttendanceRecord[],
+  mappings: NameMapping[] = [],
+  employeeNames: string[] = []
+): AttendanceRecord[] {
+  const allNames = Array.from(
+    new Set([
+      ...employeeNames,
+      ...mappings.map(mapping => mapping.employeeName),
+      ...CUSTOM_NAME_ORDER,
+    ])
+  );
+  const resolver = createNameResolver(allNames, mappings);
+  const records = new Map<string, AttendanceRecord>();
+
+  attendanceData.forEach(record => {
+    const name = resolver.resolve(record.name);
+    const date = String(record.date || '').trim();
+
+    if (!name || !date) {
+      return;
+    }
+
+    const dateKey = convertRawDateToISO(date) || date;
+    const key = `${normalizeNameForComparison(name)}-${dateKey}`;
+    const existing = records.get(key);
+    const checkIns = Array.from(
+      new Set([
+        ...getAttendanceTimes(
+          existing?.checkIns,
+          existing?.checkIn || '-'
+        ),
+        ...getAttendanceTimes(record.checkIns, record.checkIn),
+      ])
+    );
+    const checkOuts = Array.from(
+      new Set([
+        ...getAttendanceTimes(
+          existing?.checkOuts,
+          existing?.checkOut || '-'
+        ),
+        ...getAttendanceTimes(record.checkOuts, record.checkOut),
+      ])
+    );
+    const permission = hasPermission(record.permission)
+      ? record.permission
+      : existing?.permission || '-';
+
+    records.set(key, {
+      ...existing,
+      ...record,
+      name,
+      empId: record.empId || existing?.empId,
+      date: existing?.date || date,
+      checkIn: checkIns[0] || '-',
+      checkOut: checkOuts[0] || '-',
+      checkIns,
+      checkOuts,
+      permission,
+      halfDay:
+        existing?.halfDay === 'Yes' || record.halfDay === 'Yes'
+          ? 'Yes'
+          : record.halfDay || existing?.halfDay || '-',
+      weekOff:
+        existing?.weekOff === 'Yes' || record.weekOff === 'Yes'
+          ? 'Yes'
+          : record.weekOff || existing?.weekOff || '-',
+    });
+  });
+
+  return Array.from(records.values());
 }
 
 /*
@@ -167,9 +274,24 @@ export function generateAttendanceSummary(
         count1:0,
         count2:0,
         count3:0,
+        permission:0,
+        halfDay:0,
+        weekOff:0,
         total:0,
       };
       records.set(employeeName,summary);
+    }
+
+    if(hasPermission(record.permission)){
+      summary.permission++;
+    }
+
+    if(record.halfDay==='Yes'){
+      summary.halfDay++;
+    }
+
+    if(record.weekOff==='Yes'){
+      summary.weekOff++;
     }
 
     const checkIn=record.checkIn;

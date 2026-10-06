@@ -68,7 +68,8 @@ function isPermissionText(text: string): boolean {
   const lowerText = text.trim().toLowerCase();
   return (
     lowerText.includes('permission') ||
-    /\bperm\b/.test(lowerText)
+    /\bperm\b/.test(lowerText) ||
+    /\b(?:permision|premission|persimmon)\b/.test(lowerText)
   );
 }
 

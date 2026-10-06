@@ -14,6 +14,7 @@ import {
   generateDateWiseReport,
   generateAttendanceSummary,
   aggregatePenaltyByEmployee,
+  normalizeReportAttendanceData,
 } from '../utils/reportParser';
 import type {
   TimeZone,
@@ -31,6 +32,7 @@ import DateWiseReport from './reports/DateWiseReport';
 import PdfSummaryReport from './reports/PdfSummaryReport';
 import PenaltyReport from './reports/PenaltyReport';
 import EmployeeAnalytics from './reports/EmployeeAnalytics';
+import { loadEmployeeRecords } from '../utils/employeeApi';
 
 interface ReportsModuleProps {
   attendanceData: AttendanceRecord[];
@@ -59,6 +61,9 @@ export default function ReportsModule({
     view: 'overall',
   });
   const [selectedPenaltyDate, setSelectedPenaltyDate] = useState('');
+  const [officialEmployeeNames, setOfficialEmployeeNames] = useState<
+    string[]
+  >([]);
   const [analyticsFilter, setAnalyticsFilter] = useState<AnalyticsFilter>(() => {
     const now = new Date();
     return {
@@ -69,9 +74,54 @@ export default function ReportsModule({
     };
   });
 
+  useEffect(() => {
+    let mounted = true;
+
+    const loadOfficialEmployeeNames = async () => {
+      const employees = await loadEmployeeRecords();
+
+      if (mounted) {
+        setOfficialEmployeeNames(
+          employees
+            .filter(employee => employee.active)
+            .map(employee => employee.employeeName)
+        );
+      }
+    };
+
+    loadOfficialEmployeeNames();
+
+    const handleEmployeeUpdate = () => {
+      loadOfficialEmployeeNames();
+    };
+
+    window.addEventListener(
+      'employee-mapping-updated',
+      handleEmployeeUpdate
+    );
+
+    return () => {
+      mounted = false;
+      window.removeEventListener(
+        'employee-mapping-updated',
+        handleEmployeeUpdate
+      );
+    };
+  }, []);
+
+  const reportAttendanceData = useMemo(
+    () =>
+      normalizeReportAttendanceData(
+        attendanceData,
+        mappings,
+        officialEmployeeNames
+      ),
+    [attendanceData, mappings, officialEmployeeNames]
+  );
+
   const dates = useMemo(() => {
     const dateSet = new Set<string>();
-    attendanceData.forEach(record => {
+    reportAttendanceData.forEach(record => {
       if (record.date) dateSet.add(record.date);
     });
     penaltyData.forEach(record => {
@@ -90,11 +140,12 @@ export default function ReportsModule({
     return Array.from(dateSet).sort(
       (a, b) => getISODate(b).localeCompare(getISODate(a))
     );
-  }, [attendanceData, penaltyData]);
+  }, [reportAttendanceData, penaltyData]);
 
   const names = useMemo(() => {
     const allNames = Array.from(
       new Set([
+        ...officialEmployeeNames,
         ...CUSTOM_NAME_ORDER,
         ...mappings
           .map(mapping => mapping.employeeName?.trim() || '')
@@ -105,7 +156,7 @@ export default function ReportsModule({
     const resolver = createNameResolver(allNames, mappings);
     const nameSet = new Set<string>();
 
-    attendanceData.forEach(record => {
+    reportAttendanceData.forEach(record => {
       const name = String(record.name || '').trim();
       if (!name) return;
 
@@ -116,7 +167,7 @@ export default function ReportsModule({
     return Array.from(nameSet).sort((a, b) =>
       sortByName({ name: a }, { name: b })
     );
-  }, [attendanceData, mappings]);
+  }, [reportAttendanceData, mappings, officialEmployeeNames]);
 
   const analyticsYears = useMemo(() => {
     const yearSet = new Set<number>();
@@ -137,7 +188,7 @@ export default function ReportsModule({
       if (Number.isFinite(year)) yearSet.add(year);
     };
 
-    attendanceData.forEach(record => addYear(record.date || ''));
+    reportAttendanceData.forEach(record => addYear(record.date || ''));
     penaltyData.forEach(record => addYear(record.date || ''));
 
     const years = Array.from(yearSet).sort((a, b) => b - a);
@@ -147,7 +198,7 @@ export default function ReportsModule({
     }
 
     return years;
-  }, [attendanceData, penaltyData]);
+  }, [reportAttendanceData, penaltyData]);
 
   const penaltyYears = useMemo(() => {
     const years = new Set<number>();
@@ -284,7 +335,7 @@ const nameWiseData = useMemo(() => {
   if (!selectedName) return [];
 
   const reportData = generateNameWiseReport(
-    attendanceData,
+    reportAttendanceData,
     selectedName
   );
 
@@ -332,7 +383,7 @@ const nameWiseData = useMemo(() => {
     return rowISO === selectedNameDateISO;
   });
 }, [
-  attendanceData,
+  reportAttendanceData,
   penaltyData,
   selectedName,
   selectedNameDateISO,
@@ -363,22 +414,22 @@ const nameWiseData = useMemo(() => {
     if (!selectedRawDate) return [];
 
     return generateDateWiseReport(
-      attendanceData,
+      reportAttendanceData,
       selectedRawDate
     );
-  }, [attendanceData, selectedRawDate]);
+  }, [reportAttendanceData, selectedRawDate]);
 
   const summaryData = useMemo(() => {
     if (selectedPdfDates.length === 0) return [];
 
     return generateAttendanceSummary(
-      attendanceData,
+      reportAttendanceData,
       names,
       selectedPdfDates,
       timeZones
     );
   }, [
-    attendanceData,
+    reportAttendanceData,
     names,
     selectedPdfDates,
     timeZones,
@@ -449,7 +500,7 @@ const nameWiseData = useMemo(() => {
 
       {reportType === 'analytics' && (
         <EmployeeAnalytics
-          attendanceData={attendanceData}
+          attendanceData={reportAttendanceData}
           penaltyData={penaltyData}
           names={names}
           selectedName={selectedName}

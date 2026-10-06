@@ -5,8 +5,22 @@ interface DateWiseRow {
   name: string;
   checkIn: string;
   checkOut: string;
+  checkIns?: string[];
+  checkOuts?: string[];
   permission: string;
   halfDay: string;
+  weekOff: string;
+}
+
+function formatAttendanceTimes(
+  times: string[] | undefined,
+  fallback: string
+): string[] {
+  if (Array.isArray(times) && times.length > 0) {
+    return times.filter(time => Boolean(time && time !== '-'));
+  }
+
+  return fallback && fallback !== '-' ? [fallback] : [];
 }
 
 interface DateWiseReportProps {
@@ -103,6 +117,10 @@ export default function DateWiseReport({
               <th className="px-6 py-4 text-center">
                 Half Day
               </th>
+
+              <th className="px-6 py-4 text-center">
+                Week Off
+              </th>
             </tr>
           </thead>
 
@@ -117,11 +135,31 @@ export default function DateWiseReport({
                 </td>
 
                 <td className="px-6 py-4 text-emerald-400">
-                  {row.checkIn}
+                  {formatAttendanceTimes(row.checkIns, row.checkIn).length > 0 ? (
+                    <div className="flex flex-col gap-1">
+                      {formatAttendanceTimes(row.checkIns, row.checkIn).map(
+                        (time, timeIndex) => (
+                          <span key={`${time}-${timeIndex}`}>{time}</span>
+                        )
+                      )}
+                    </div>
+                  ) : (
+                    '-'
+                  )}
                 </td>
 
                 <td className="px-6 py-4 text-rose-400">
-                  {row.checkOut}
+                  {formatAttendanceTimes(row.checkOuts, row.checkOut).length > 0 ? (
+                    <div className="flex flex-col gap-1">
+                      {formatAttendanceTimes(row.checkOuts, row.checkOut).map(
+                        (time, timeIndex) => (
+                          <span key={`${time}-${timeIndex}`}>{time}</span>
+                        )
+                      )}
+                    </div>
+                  ) : (
+                    '-'
+                  )}
                 </td>
 
                 <td className="px-6 py-4 text-center">
@@ -143,13 +181,23 @@ export default function DateWiseReport({
                     '-'
                   )}
                 </td>
+
+                <td className="px-6 py-4 text-center">
+                  {row.weekOff === 'Yes' ? (
+                    <span className="bg-violet-500/20 text-violet-400 px-2 py-1 rounded font-bold text-xs">
+                      WEEK OFF
+                    </span>
+                  ) : (
+                    '-'
+                  )}
+                </td>
               </tr>
             ))}
 
             {filteredData.length === 0 && (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={6}
                   className="text-center py-8 text-slate-400"
                 >
                   No records found.

@@ -30,6 +30,12 @@ export function parseWhatsAppChat(text: string): ParsedMessage[] {
   const messageRegex =
     /^\[?(\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4})[,\s]+(\d{1,2}:\d{2}(?::\d{2})?(?:\s?[aApP][mM])?)\]?\s*(?:-\s*)?([^:]+?):\s*(.*)$/;
 
+  // WhatsApp group events have a timestamp but no "sender: message"
+  // separator, for example: "- Group Admin removed Employee". They are
+  // message boundaries, not continuation text for the previous message.
+  const timestampedLineRegex =
+    /^\[?\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}[,\s]+\d{1,2}:\d{2}(?::\d{2})?(?:\s?[aApP][mM])?\]?\s*(?:-\s*)?/;
+
   let currentMessage: ParsedMessage | null = null;
   let idCounter = 0;
 
@@ -58,6 +64,15 @@ export function parseWhatsAppChat(text: string): ParsedMessage[] {
         sender: sender.trim(),
         message: message.trim(),
       };
+
+      continue;
+    }
+
+    if (timestampedLineRegex.test(line)) {
+      if (currentMessage) {
+        messages.push(currentMessage);
+        currentMessage = null;
+      }
 
       continue;
     }

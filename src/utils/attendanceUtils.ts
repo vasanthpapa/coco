@@ -270,31 +270,88 @@ export function createNameResolver(
 
   const candidateSet = new Set<string>();
 
-  for (const name of CUSTOM_NAME_ORDER) {
+  const addFuzzyCandidate = (name: string) => {
     const clean = cleanName(name);
+    const normalized =
+      normalizeNameForComparison(clean);
 
-    if (clean && !candidateSet.has(clean)) {
-      candidateSet.add(clean);
+    if (
+      clean &&
+      normalized &&
+      !candidateSet.has(normalized)
+    ) {
+      candidateSet.add(normalized);
 
       fuzzyCandidates.push({
         name: clean,
-        normalized: normalizeNameForComparison(clean),
+        normalized,
       });
     }
+  };
+
+  // Prefer the current employee master, then mapped/default employees.
+  for (const name of allNames) {
+    addFuzzyCandidate(name);
   }
 
   for (const mapping of mappings) {
-    const clean = cleanName(mapping.employeeName);
-
-    if (clean && !candidateSet.has(clean)) {
-      candidateSet.add(clean);
-
-      fuzzyCandidates.push({
-        name: clean,
-        normalized: normalizeNameForComparison(clean),
-      });
-    }
+    addFuzzyCandidate(mapping.employeeName);
   }
+
+  for (const name of CUSTOM_NAME_ORDER) {
+    addFuzzyCandidate(name);
+  }
+
+  const findContainedEmployeeName = (
+    input: string
+  ): string => {
+    const normalizedWords = String(input || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!normalizedWords) {
+      return '';
+    }
+
+    const paddedInput = ` ${normalizedWords} `;
+    const matches = fuzzyCandidates.filter(
+      candidate => {
+        const candidateWords = candidate.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        return (
+          candidateWords.length >= 3 &&
+          paddedInput.includes(
+            ` ${candidateWords} `
+          )
+        );
+      }
+    );
+
+    if (matches.length === 0) {
+      return '';
+    }
+
+    const longestLength = Math.max(
+      ...matches.map(
+        candidate => candidate.normalized.length
+      )
+    );
+    const longestMatches = matches.filter(
+      candidate =>
+        candidate.normalized.length ===
+        longestLength
+    );
+
+    return longestMatches.length === 1
+      ? longestMatches[0].name
+      : '';
+  };
 
   const resolve = (name: string): string => {
     const clean = cleanName(name);
@@ -328,6 +385,20 @@ export function createNameResolver(
 
     if (cached !== undefined) {
       return cached;
+    }
+
+    const containedEmployeeName =
+      findContainedEmployeeName(
+        clean
+      );
+
+    if (containedEmployeeName) {
+      fuzzyCache.set(
+        normalizedInput,
+        containedEmployeeName
+      );
+
+      return containedEmployeeName;
     }
 
     if (normalizedInput.length >= 4) {
@@ -424,11 +495,29 @@ export function createNameResolver(
       return '';
     }
 
+    const normalizedInput =
+      normalizeNameForComparison(clean);
+
+    const mappedName = aliasMap.get(
+      normalizedInput
+    );
+
+    if (mappedName) {
+      return mappedName;
+    }
+
+    const exactName = exactNameMap.get(
+      clean.toLowerCase()
+    );
+
+    if (exactName) {
+      return exactName;
+    }
+
     return (
-      aliasMap.get(
-        normalizeNameForComparison(clean)
-      ) ||
-      clean
+      findContainedEmployeeName(
+        clean
+      ) || clean
     );
   };
 
@@ -1069,6 +1158,14 @@ export function parsePermissionDuration(
     return {
       durationMinutes: null,
       displayDuration: '',
+    };
+  }
+
+  // Common voice-to-text forms of "half an hour permission".
+  if (/\bhalf\s+(?:(?:an?|one)\s+hour|never)\b/.test(cleanText)) {
+    return {
+      durationMinutes: 30,
+      displayDuration: '30 minutes',
     };
   }
 

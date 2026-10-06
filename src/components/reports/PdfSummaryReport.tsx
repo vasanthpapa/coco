@@ -433,6 +433,18 @@ const filteredDates = useMemo(() => {
                   </th>
 
                   <th className="px-4 py-3 text-center border border-gray-300">
+                    Permission
+                  </th>
+
+                  <th className="px-4 py-3 text-center border border-gray-300">
+                    Half Day
+                  </th>
+
+                  <th className="px-4 py-3 text-center border border-gray-300">
+                    Week Off
+                  </th>
+
+                  <th className="px-4 py-3 text-center border border-gray-300">
                     Total
                   </th>
                 </tr>
@@ -461,6 +473,18 @@ const filteredDates = useMemo(() => {
                           'NIL'}
                       </td>
 
+                      <td className="px-4 py-3 text-center border border-gray-200">
+                        {row.permission || 'NIL'}
+                      </td>
+
+                      <td className="px-4 py-3 text-center border border-gray-200">
+                        {row.halfDay || 'NIL'}
+                      </td>
+
+                      <td className="px-4 py-3 text-center border border-gray-200">
+                        {row.weekOff || 'NIL'}
+                      </td>
+
                       <td className="px-4 py-3 text-center font-bold border border-gray-200">
                         {row.total}
                       </td>
@@ -472,7 +496,7 @@ const filteredDates = useMemo(() => {
                   0 && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={8}
                       className="text-center py-8 text-gray-500"
                     >
                       No attendance records
