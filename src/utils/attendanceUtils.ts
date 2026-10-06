@@ -68,6 +68,101 @@ export function normalizeNameForComparison(name: string): string {
   return lowerName(name).replace(/[^a-z0-9]/g, '');
 }
 
+export function isWeekOffDeclaration(
+  text: string
+): boolean {
+  const normalizedText = String(text || '')
+    .replace(/<\s*This message was edited\s*>/gi, ' ')
+    .replace(/[*_~`]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+  const weekOffPattern =
+    /\b(?:week\s*off|weekoff|weekly\s*off|wo)\b/i;
+
+  if (!weekOffPattern.test(normalizedText)) {
+    return false;
+  }
+
+  // Broadcasts, rules and questions mention week-off without declaring
+  // attendance for the sender or a named employee.
+  if (
+    /@all\b|\b(?:everyone|everybody|all\s+(?:staff|employees?)|policy|announcement|should|must|allowed|only|month|monthly|converted?|already|taken|holiday|loss\s+of\s+pay|lop)\b/i.test(
+      normalizedText
+    ) ||
+    /\b(?:no|not|without)\s+(?:a\s+)?(?:week\s*off|weekoff|weekly\s*off|wo)\b/i.test(
+      normalizedText
+    ) ||
+    /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:days?\s+)?(?:week\s*off|weekoff|weekly\s*off|wo)\b/i.test(
+      normalizedText
+    ) ||
+    /\?|\b(?:who|when|why|how\s+many|can\s+i|may\s+i|should\s+i)\b/i.test(
+      normalizedText
+    ) ||
+    /\b(?:tomorrow|yesterday|next|last|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(
+      normalizedText
+    )
+  ) {
+    return false;
+  }
+
+  const selfDeclaration =
+    /\b(?:today\s+)?(?:i\s*am|i['’]?m|iam)\s+(?:(?:am\s+)?taking\s+|on\s+|a\s+)?(?:week\s*off|weekoff|weekly\s*off|wo)\b/i.test(
+      normalizedText
+    ) ||
+    /\b(?:today\s+(?:is\s+)?)?my\s+(?:week\s*off|weekoff|weekly\s*off|wo)\b/i.test(
+      normalizedText
+    ) ||
+    /\b(?:week\s*off|weekoff|weekly\s*off|wo)\s+(?:is\s+)?(?:my|mine)\b/i.test(
+      normalizedText
+    );
+
+  if (selfDeclaration) {
+    return true;
+  }
+
+  // Also allow concise status lines such as "week off today sir" or
+  // "Vasanth week off today", while rejecting longer explanatory text.
+  const remainingWords = normalizedText
+    .replace(
+      /\b(?:week\s*off|weekoff|weekly\s*off|wo)\b/gi,
+      ' '
+    )
+    .replace(/[()[\]{}.,:;!?/\\|+-]/g, ' ')
+    .split(/\s+/)
+    .map(word => word.replace(/^@+|@+$/g, ''))
+    .filter(Boolean)
+    .filter(
+      word =>
+        !new Set([
+          'today',
+          'i',
+          'am',
+          'iam',
+          "i'm",
+          'im',
+          'my',
+          'mine',
+          'me',
+          'is',
+          'on',
+          'for',
+          'taking',
+          'take',
+          'leave',
+          'day',
+          'sir',
+          'madam',
+          'akka',
+          'anna',
+          'please',
+        ]).has(word)
+    );
+
+  return remainingWords.length <= 2;
+}
+
 function levenshteinDistance(a: string, b: string): number {
   if (a === b) {
     return 0;

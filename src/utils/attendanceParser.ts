@@ -4,6 +4,7 @@ import {
   createNameResolver,
   sortByName,
   getAppliesToNames,
+  isWeekOffDeclaration,
   normalizeAttendanceSenderName,
   NameMapping,
   NameResolver,
@@ -25,10 +26,6 @@ function isSpecificCheckInText(text: string): boolean {
 
 function isSpecificCheckOutText(text: string): boolean {
   return normalizeAttendanceText(text).includes('checkout');
-}
-
-function isWeekOffText(text: string): boolean {
-  return /\bweek\s*\*?\s*off\b/i.test(text);
 }
 
 function isCheckInText(text: string): boolean {
@@ -578,7 +575,7 @@ export function parseAttendance(
       isPermissionText(text);
 
     const weekOff =
-      isWeekOffText(text);
+      isWeekOffDeclaration(text);
 
     const hasAttendanceEvent =
       specificCheckIn ||

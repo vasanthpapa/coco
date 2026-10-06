@@ -1,5 +1,6 @@
 import {
   CUSTOM_NAME_ORDER,
+  isWeekOffDeclaration,
   normalizeEmployeeName,
   sortByName,
 } from './attendanceUtils';
@@ -46,15 +47,10 @@ export function parseWeekOff(
       return;
     }
 
-    const text = String(
-      msg.message
-    ).toLowerCase();
-
     const isWeekOff =
-      text.includes('week off') ||
-      text.includes('weekoff') ||
-      text.includes('weekly off') ||
-      text === 'wo';
+      isWeekOffDeclaration(
+        String(msg.message)
+      );
 
     if (!isWeekOff) {
       return;
