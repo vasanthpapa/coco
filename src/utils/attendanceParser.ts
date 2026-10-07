@@ -17,7 +17,10 @@ const ATTENDANCE_FILLER_WORDS = new Set([
 ]);
 
 function normalizeAttendanceText(text: string): string {
-  return text.toLowerCase().replace(/[^a-z]/g, '');
+  return text
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
 }
 
 function isSpecificCheckInText(text: string): boolean {
