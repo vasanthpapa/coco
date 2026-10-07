@@ -16,6 +16,7 @@ export interface NameWiseReport extends AttendanceRecord {
 
 export interface SummaryRecord {
   name:string;
+  empId:string;
   count1:number;
   count2:number;
   count3:number;
@@ -70,6 +71,12 @@ export function normalizeReportAttendanceData(
     ])
   );
   const resolver = createNameResolver(allNames, mappings);
+  const employeeIdByName = new Map(
+    mappings.map(mapping => [
+      normalizeNameForComparison(mapping.employeeName),
+      String(mapping.empId || '').trim(),
+    ])
+  );
   const records = new Map<string, AttendanceRecord>();
 
   attendanceData.forEach(record => {
@@ -109,7 +116,10 @@ export function normalizeReportAttendanceData(
       ...existing,
       ...record,
       name,
-      empId: record.empId || existing?.empId,
+      empId:
+        record.empId ||
+        existing?.empId ||
+        employeeIdByName.get(normalizeNameForComparison(name)),
       date: existing?.date || date,
       checkIn: checkIns[0] || '-',
       checkOut: checkOuts[0] || '-',
@@ -271,6 +281,7 @@ export function generateAttendanceSummary(
     if(!summary){
       summary={
         name:employeeName,
+        empId:String(record.empId || '').trim(),
         count1:0,
         count2:0,
         count3:0,
@@ -280,6 +291,8 @@ export function generateAttendanceSummary(
         total:0,
       };
       records.set(employeeName,summary);
+    } else if (!summary.empId && record.empId) {
+      summary.empId=String(record.empId).trim();
     }
 
     if(hasPermission(record.permission)){

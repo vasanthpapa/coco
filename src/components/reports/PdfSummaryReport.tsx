@@ -48,6 +48,7 @@ export default function PdfSummaryReport({
   summaryData,
 }: PdfSummaryReportProps) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [minimumEmployeeId, setMinimumEmployeeId] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('all');
   const [selectedYear, setSelectedYear] = useState('all');
 
@@ -186,15 +187,29 @@ const filteredDates = useMemo(() => {
       selectedDates.includes(date)
     );
 
-  // Filter summary rows using employee search.
-  const filteredSummaryData =
-    summaryData.filter(row =>
-      String(row.name)
-        .toLowerCase()
-        .includes(
-          searchTerm.toLowerCase()
-        )
-    );
+  // Filter summary rows using employee name/ID search and an optional numeric
+  // employee-ID threshold. Empty or non-numeric IDs are excluded only when a
+  // threshold is supplied.
+  const filteredSummaryData = useMemo(() => {
+    const minimumId = minimumEmployeeId.trim() === ''
+      ? null
+      : Number(minimumEmployeeId);
+    const search = searchTerm.trim().toLowerCase();
+
+    return summaryData.filter(row => {
+      const matchesSearch = !search ||
+        String(row.name).toLowerCase().includes(search) ||
+        String(row.empId || '').toLowerCase().includes(search);
+      const employeeId = Number(String(row.empId || '').trim());
+      const matchesMinimumId = minimumId === null || (
+        Number.isFinite(minimumId) &&
+        Number.isFinite(employeeId) &&
+        employeeId > minimumId
+      );
+
+      return matchesSearch && matchesMinimumId;
+    });
+  }, [summaryData, searchTerm, minimumEmployeeId]);
 
   return (
     <div className="animate-in fade-in space-y-8">
@@ -374,41 +389,52 @@ const filteredDates = useMemo(() => {
             </div>
           </div>
 
-          <div className="mb-5">
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Search Employee
-            </label>
+          <div className="mb-5 flex flex-wrap gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Search Employee
+              </label>
 
-            <div className="relative w-full md:w-96">
-              <Search
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                size={18}
-              />
+              <div className="relative w-full md:w-96">
+                <Search
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                  size={18}
+                />
 
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={event => setSearchTerm(event.target.value)}
+                  placeholder="Search name or employee ID..."
+                  className="w-full pl-10 pr-10 py-3 bg-gray-50 border-2 border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 shadow-sm outline-none transition-all focus:bg-white focus:border-primary focus:ring-4 focus:ring-primary/10"
+                />
+
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+                    aria-label="Clear search"
+                  >
+                    <X size={17} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Employee ID greater than
+              </label>
               <input
-                type="text"
-                value={searchTerm}
-                onChange={event =>
-                  setSearchTerm(
-                    event.target.value
-                  )
-                }
-                placeholder="Search employee name..."
-                className="w-full pl-10 pr-10 py-3 bg-gray-50 border-2 border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 shadow-sm outline-none transition-all focus:bg-white focus:border-primary focus:ring-4 focus:ring-primary/10"
+                type="number"
+                min="0"
+                step="1"
+                value={minimumEmployeeId}
+                onChange={event => setMinimumEmployeeId(event.target.value)}
+                placeholder="e.g. 2000"
+                className="w-full md:w-56 px-3 py-3 bg-gray-50 border-2 border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 shadow-sm outline-none transition-all focus:bg-white focus:border-primary focus:ring-4 focus:ring-primary/10"
               />
-
-              {searchTerm && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSearchTerm('')
-                  }
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
-                  aria-label="Clear search"
-                >
-                  <X size={17} />
-                </button>
-              )}
             </div>
           </div>
 
@@ -416,6 +442,9 @@ const filteredDates = useMemo(() => {
             <table className="w-full text-left text-sm border-collapse">
               <thead className="bg-[#2c3e50] text-white">
                 <tr>
+                  <th className="px-4 py-3 border border-gray-300">
+                    Employee ID
+                  </th>
                   <th className="px-4 py-3 border border-gray-300">
                     Name
                   </th>
@@ -454,6 +483,9 @@ const filteredDates = useMemo(() => {
                 {filteredSummaryData.map(
                   row => (
                     <tr key={row.name}>
+                      <td className="px-4 py-3 border border-gray-200">
+                        {row.empId || '-'}
+                      </td>
                       <td className="px-4 py-3 font-bold border border-gray-200">
                         {row.name}
                       </td>
@@ -496,7 +528,7 @@ const filteredDates = useMemo(() => {
                   0 && (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       className="text-center py-8 text-gray-500"
                     >
                       No attendance records
