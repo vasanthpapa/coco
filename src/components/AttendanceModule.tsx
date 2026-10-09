@@ -1,4 +1,5 @@
 import React, {
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -294,16 +295,16 @@ const goToNextMonth = () => {
   }
 };
 
-const dateAttendance = useMemo(() => {
-  if (!selectedDateISO) {
+const mapAttendanceForDate = useCallback((targetDateISO: string) => {
+  if (!targetDateISO) {
     return [];
   }
 
-  const selectedDateRecords = attendanceData.filter(
-    record =>
-      convertRawDateToISO(record.date || '') ===
-      selectedDateISO
-  );
+ const selectedDateRecords = attendanceData.filter(
+  record =>
+    convertRawDateToISO(record.date || '') ===
+    targetDateISO
+);
 
   const getEmployeeForName = (
     name: string
@@ -386,10 +387,22 @@ const dateAttendance = useMemo(() => {
     if (employee) {
       matchedRecords.add(record);
 
-      attendanceByEmployeeId.set(
-        employee.empId.trim().toLowerCase(),
-        record
-      );
+      
+const employeeIdKey = employee.empId.trim().toLowerCase();
+const existingRecord = attendanceByEmployeeId.get(employeeIdKey);
+
+attendanceByEmployeeId.set(employeeIdKey, {
+  ...existingRecord,
+  ...record,
+  weekOff:
+    existingRecord?.weekOff === 'Yes' || record.weekOff === 'Yes'
+      ? 'Yes'
+      : record.weekOff || existingRecord?.weekOff || '-',
+  permission:
+    record.permission && record.permission !== '-'
+      ? record.permission
+      : existingRecord?.permission || '-',
+});
     }
 
     const resolvedName =
@@ -447,7 +460,7 @@ const dateAttendance = useMemo(() => {
           halfDay: '-',
           permission: '-',
           weekOff: '-',
-          date: selectedDateISO,
+          date: targetDateISO,
         };
       });
 
@@ -501,12 +514,17 @@ const dateAttendance = useMemo(() => {
       }
     );
   });
-}, [
-  attendanceData,
-  selectedDateISO,
-  employeeRecords,
-  nameMappings,
-]);
+}, [attendanceData, employeeRecords, nameMappings]);
+
+const dateAttendance = useMemo(
+  () => mapAttendanceForDate(selectedDateISO),
+  [mapAttendanceForDate, selectedDateISO]
+);
+
+const allDatesAttendance = useMemo(
+  () => dates.flatMap(date => mapAttendanceForDate(date)),
+  [dates, mapAttendanceForDate]
+);
 
   const dailyAttendance = useMemo(() => {
     const search = searchTerm
@@ -526,6 +544,40 @@ const dateAttendance = useMemo(() => {
     dateAttendance,
     searchTerm,
   ]);
+
+
+useEffect(() => {
+  if (dates.length === 0 || allDatesAttendance.length === 0) {
+    return;
+  }
+
+  const controller = new AbortController();
+
+  const timer = setTimeout(async () => {
+    try {
+      const response = await fetch('/api/attendance/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ records: allDatesAttendance }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Preview sync failed: ${response.status}`);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name !== 'AbortError') {
+        console.error('Attendance preview sync failed:', error);
+      }
+    }
+  }, 300);
+
+  return () => {
+    clearTimeout(timer);
+    controller.abort();
+  };
+}, [allDatesAttendance, dates.length]);
+
 
 const attendanceSummary = useMemo(() => {
   const employees = new Map<
@@ -636,16 +688,21 @@ const attendanceSummary = useMemo(() => {
     className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
   />
 
-  <input
-    type="date"
-    value={selectedDateISO}
-    max={dates[0] || ''}
-    onChange={event =>
-      setSelectedDateISO(event.target.value)
+<input
+  type="date"
+  value={selectedDateISO}
+  min={dates[dates.length - 1] || ''}
+  max={dates[0] || ''}
+  onChange={event => {
+    const selectedDate = event.target.value;
+
+    if (dates.includes(selectedDate)) {
+      setSelectedDateISO(selectedDate);
     }
-    className="h-10 rounded-lg border border-slate-700 bg-slate-800 pl-10 pr-3 text-sm text-white outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary [color-scheme:dark]"
-    aria-label="Select attendance date"
-  />
+  }}
+  className="h-10 rounded-lg border border-slate-700 bg-slate-800 pl-10 pr-3 text-sm text-white outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary [color-scheme:dark]"
+  aria-label="Select attendance date"
+/>
 </div>
 
   {/* DATE NAVIGATION */}
