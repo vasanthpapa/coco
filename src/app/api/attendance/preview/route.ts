@@ -1,41 +1,39 @@
 import { NextResponse } from 'next/server';
-import { getDatabase } from '@/src/lib/database';
-import { DataError } from '@/src/lib/dataErrors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type AttendanceRecord = Record<string, unknown>;
-type PreviewDocument = {
-  _id: string;
+
+type PreviewData = {
   records: AttendanceRecord[];
   updatedAt: string;
 };
 
-const PREVIEW_ID = 'latest';
-const COLLECTION_NAME = 'attendance_previews';
-const corsHeaders = {
-  'Access-Control-Allow-Origin': 'https://smartsalary-ochre.vercel.app',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Cache-Control': 'no-store',
+const globalForPreview = globalThis as typeof globalThis & {
+  cocoAttendancePreview?: PreviewData;
 };
 
-function json(data: unknown, status = 200) {
-  return NextResponse.json(data, { status, headers: corsHeaders });
-}
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'https://smartsalary-ochre.vercel.app',
+];
 
-function errorResponse(error: unknown, fallback: string) {
-  if (error instanceof SyntaxError) {
-    return json({ success: false, error: 'Invalid request.' }, 400);
+function getCorsHeaders(request: Request) {
+  const origin = request.headers.get('origin');
+  const headers = new Headers({
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Cache-Control': 'no-store',
+    'Vary': 'Origin',
+  });
+
+  if (origin && allowedOrigins.includes(origin)) {
+    headers.set('Access-Control-Allow-Origin', origin);
   }
 
-  if (error instanceof DataError) {
-    return json({ success: false, error: error.message }, error.status);
-  }
-
-  console.error(fallback, error instanceof Error ? error.name : 'UnknownError');
-  return json({ success: false, error: fallback }, 500);
+  return headers;
 }
 
 function normalizeRecord(record: AttendanceRecord): AttendanceRecord {
@@ -52,21 +50,23 @@ function normalizeRecord(record: AttendanceRecord): AttendanceRecord {
   };
 }
 
-export async function OPTIONS() {
+export async function OPTIONS(request: Request) {
   return new Response(null, {
     status: 204,
-    headers: corsHeaders,
+    headers: getCorsHeaders(request),
   });
 }
 
 export async function POST(request: Request) {
+  const headers = getCorsHeaders(request);
+
   try {
     const body = await request.json();
 
     if (!Array.isArray(body?.records)) {
-      return json(
+      return NextResponse.json(
         { success: false, error: 'Records must be an array.' },
-        400,
+        { status: 400, headers },
       );
     }
 
@@ -78,50 +78,59 @@ export async function POST(request: Request) {
           !Array.isArray(record),
       )
     ) {
-      return json(
+      return NextResponse.json(
         { success: false, error: 'Every record must be an object.' },
-        400,
+        { status: 400, headers },
       );
     }
 
     const records = (body.records as AttendanceRecord[]).map(normalizeRecord);
-    const updatedAt = new Date().toISOString();
     const missingEmpIdCount = records.filter(record => !record.empId).length;
-    const { database } = await getDatabase();
 
-    await database.collection<PreviewDocument>(COLLECTION_NAME).updateOne(
-      { _id: PREVIEW_ID },
-      { $set: { records, updatedAt } },
-      { upsert: true },
+    globalForPreview.cocoAttendancePreview = {
+      records,
+      updatedAt: new Date().toISOString(),
+    };
+
+    return NextResponse.json(
+      {
+        success: true,
+        count: records.length,
+        missingEmpIdCount,
+        updatedAt: globalForPreview.cocoAttendancePreview.updatedAt,
+      },
+      { headers },
     );
-
-    return json({
-      success: true,
-      count: records.length,
-      missingEmpIdCount,
-      updatedAt,
-    });
-  } catch (error) {
-    return errorResponse(error, 'Unable to save attendance preview.');
+  } catch {
+    return NextResponse.json(
+      { success: false, error: 'Invalid request.' },
+      { status: 400, headers },
+    );
   }
 }
 
-export async function GET() {
-  try {
-    const { database } = await getDatabase();
-    const preview = await database
-      .collection<PreviewDocument>(COLLECTION_NAME)
-      .findOne({ _id: PREVIEW_ID });
-    const records = preview?.records ?? [];
+export async function GET(request: Request) {
+  const headers = getCorsHeaders(request);
+  const preview = globalForPreview.cocoAttendancePreview;
 
-    return json({
-      success: true,
-      count: records.length,
-      updatedAt: preview?.updatedAt ?? null,
-      missingEmpIdCount: records.filter(record => !record.empId).length,
-      records,
-    });
-  } catch (error) {
-    return errorResponse(error, 'Unable to load attendance preview.');
+  if (!preview) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'No attendance preview available. Send records from COCO first.',
+      },
+      { status: 404, headers },
+    );
   }
+
+  return NextResponse.json(
+    {
+      success: true,
+      count: preview.records.length,
+      updatedAt: preview.updatedAt,
+      missingEmpIdCount: preview.records.filter(record => !record.empId).length,
+      records: preview.records,
+    },
+    { headers },
+  );
 }
