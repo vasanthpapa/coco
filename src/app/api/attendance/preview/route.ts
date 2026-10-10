@@ -1,19 +1,19 @@
 import { NextResponse } from 'next/server';
+import { getDatabase } from '@/src/lib/database';
+import { DataError } from '@/src/lib/dataErrors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type AttendanceRecord = Record<string, unknown>;
-
-type PreviewData = {
+type PreviewDocument = {
+  _id: string;
   records: AttendanceRecord[];
   updatedAt: string;
 };
 
-const globalForPreview = globalThis as typeof globalThis & {
-  cocoAttendancePreview?: PreviewData;
-};
-
+const PREVIEW_ID = 'latest';
+const COLLECTION_NAME = 'attendance_previews';
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
@@ -34,6 +34,26 @@ function getCorsHeaders(request: Request) {
   }
 
   return headers;
+}
+
+function json(data: unknown, request: Request, status = 200) {
+  return NextResponse.json(data, {
+    status,
+    headers: getCorsHeaders(request),
+  });
+}
+
+function errorResponse(error: unknown, fallback: string, request: Request) {
+  if (error instanceof SyntaxError) {
+    return json({ success: false, error: 'Invalid request.' }, request, 400);
+  }
+
+  if (error instanceof DataError) {
+    return json({ success: false, error: error.message }, request, error.status);
+  }
+
+  console.error(fallback, error instanceof Error ? error.name : 'UnknownError');
+  return json({ success: false, error: fallback }, request, 500);
 }
 
 function normalizeRecord(record: AttendanceRecord): AttendanceRecord {
@@ -58,15 +78,14 @@ export async function OPTIONS(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const headers = getCorsHeaders(request);
-
   try {
     const body = await request.json();
 
     if (!Array.isArray(body?.records)) {
-      return NextResponse.json(
+      return json(
         { success: false, error: 'Records must be an array.' },
-        { status: 400, headers },
+        request,
+        400,
       );
     }
 
@@ -78,59 +97,51 @@ export async function POST(request: Request) {
           !Array.isArray(record),
       )
     ) {
-      return NextResponse.json(
+      return json(
         { success: false, error: 'Every record must be an object.' },
-        { status: 400, headers },
+        request,
+        400,
       );
     }
 
     const records = (body.records as AttendanceRecord[]).map(normalizeRecord);
+    const updatedAt = new Date().toISOString();
     const missingEmpIdCount = records.filter(record => !record.empId).length;
+    const { database } = await getDatabase();
 
-    globalForPreview.cocoAttendancePreview = {
-      records,
-      updatedAt: new Date().toISOString(),
-    };
+    await database.collection<PreviewDocument>(COLLECTION_NAME).updateOne(
+      { _id: PREVIEW_ID },
+      { $set: { records, updatedAt } },
+      { upsert: true },
+    );
 
-    return NextResponse.json(
-      {
-        success: true,
-        count: records.length,
-        missingEmpIdCount,
-        updatedAt: globalForPreview.cocoAttendancePreview.updatedAt,
-      },
-      { headers },
-    );
-  } catch {
-    return NextResponse.json(
-      { success: false, error: 'Invalid request.' },
-      { status: 400, headers },
-    );
+    return json({
+      success: true,
+      count: records.length,
+      missingEmpIdCount,
+      updatedAt,
+    }, request);
+  } catch (error) {
+    return errorResponse(error, 'Unable to save attendance preview.', request);
   }
 }
 
 export async function GET(request: Request) {
-  const headers = getCorsHeaders(request);
-  const preview = globalForPreview.cocoAttendancePreview;
+  try {
+    const { database } = await getDatabase();
+    const preview = await database
+      .collection<PreviewDocument>(COLLECTION_NAME)
+      .findOne({ _id: PREVIEW_ID });
+    const records = preview?.records ?? [];
 
-  if (!preview) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'No attendance preview available. Send records from COCO first.',
-      },
-      { status: 404, headers },
-    );
-  }
-
-  return NextResponse.json(
-    {
+    return json({
       success: true,
-      count: preview.records.length,
-      updatedAt: preview.updatedAt,
-      missingEmpIdCount: preview.records.filter(record => !record.empId).length,
-      records: preview.records,
-    },
-    { headers },
-  );
+      count: records.length,
+      updatedAt: preview?.updatedAt ?? null,
+      missingEmpIdCount: records.filter(record => !record.empId).length,
+      records,
+    }, request);
+  } catch (error) {
+    return errorResponse(error, 'Unable to load attendance preview.', request);
+  }
 }
