@@ -24,7 +24,11 @@ function normalizeAttendanceText(text: string): string {
 }
 
 function isSpecificCheckInText(text: string): boolean {
-  return normalizeAttendanceText(text).includes('checkin');
+  const normalizedText = normalizeAttendanceText(text);
+  return (
+    normalizedText.includes('checkin') ||
+    normalizedText.includes('chekin')
+  );
 }
 
 function isSpecificCheckOutText(text: string): boolean {
@@ -126,10 +130,10 @@ function getAttendanceKeyword(
   text: string,
   phrase: 'checkIn' | 'checkOut'
 ): { index: number; length: number } | null {
-  const keyword =
+  const keywords =
     phrase === 'checkIn'
-      ? 'checkin'
-      : 'checkout';
+      ? ['checkin', 'chekin']
+      : ['checkout'];
 
   let normalizedText = '';
   const originalIndexes: number[] = [];
@@ -143,22 +147,27 @@ function getAttendanceKeyword(
     }
   }
 
-  const normalizedIndex =
-    normalizedText.indexOf(keyword);
+  const match = keywords
+    .map(keyword => ({
+      keyword,
+      index: normalizedText.indexOf(keyword)
+    }))
+    .filter(candidate => candidate.index !== -1)
+    .sort((a, b) => a.index - b.index)[0];
 
-  if (normalizedIndex === -1) {
+  if (!match) {
     return null;
   }
 
   const originalIndex =
-    originalIndexes[normalizedIndex];
+    originalIndexes[match.index];
 
   if (originalIndex === undefined) {
     return null;
   }
 
   const endNormalizedIndex =
-    normalizedIndex + keyword.length - 1;
+    match.index + match.keyword.length - 1;
 
   const lastOriginalIndex =
     originalIndexes[endNormalizedIndex];
