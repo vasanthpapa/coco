@@ -13,6 +13,7 @@ import {
   Upload,
   Settings,
   Brain,
+  LogOut,
 } from 'lucide-react';
 
 export type AnalysisModule =
@@ -48,6 +49,7 @@ interface ModuleSelectorProps {
   onSelect: (mod: AnalysisModule) => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  onLogout: () => void;
 }
 
 export default function ModuleSelector({
@@ -55,6 +57,7 @@ export default function ModuleSelector({
   onSelect,
   isCollapsed,
   onToggleCollapse,
+  onLogout,
 }: ModuleSelectorProps) {
   const modules = [
     {
@@ -193,7 +196,7 @@ export default function ModuleSelector({
         </nav>
 
         <div className="p-3 border-t border-slate-700">
-          <button
+          {/* <button
             type="button"
             onClick={() => onSelect('ai_settings')}
             title={
@@ -218,7 +221,21 @@ export default function ModuleSelector({
                 AI Settings
               </span>
             )}
-          </button>
+          </button> */}
+
+          <button
+  type="button"
+  onClick={onLogout}
+  title={isCollapsed ? 'Logout' : undefined}
+  className={`w-full flex items-center rounded-xl transition-all duration-200 text-rose-400 hover:text-white hover:bg-rose-500/15 ${
+    isCollapsed ? 'justify-center h-11' : 'px-3 h-11'
+  }`}
+>
+  <LogOut className="w-5 h-5 flex-shrink-0" />
+  {!isCollapsed && (
+    <span className="ml-3 text-sm font-medium">Logout</span>
+  )}
+</button>
         </div>
       </div>
     </div>

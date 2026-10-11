@@ -1,4 +1,9 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { timingSafeEqual } from 'node:crypto';
+import {
+  COOKIE_NAME,
+  verifyAdminSession,
+} from '@/src/lib/adminSession';
 import { getDatabase } from '@/src/lib/database';
 import { DataError } from '@/src/lib/dataErrors';
 
@@ -24,7 +29,7 @@ function getCorsHeaders(request: Request) {
   const origin = request.headers.get('origin');
   const headers = new Headers({
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Cache-Control': 'no-store',
     'Vary': 'Origin',
   });
@@ -56,6 +61,29 @@ function errorResponse(error: unknown, fallback: string, request: Request) {
   return json({ success: false, error: fallback }, request, 500);
 }
 
+function isAuthorized(request: NextRequest) {
+  const expected = process.env.COCO_ATTENDANCE_API_TOKEN;
+  const supplied = request.headers
+    .get('authorization')
+    ?.match(/^Bearer\s+(.+)$/i)?.[1];
+
+  if (expected && supplied) {
+    const expectedBuffer = Buffer.from(expected);
+    const suppliedBuffer = Buffer.from(supplied);
+
+    if (
+      expectedBuffer.length === suppliedBuffer.length &&
+      timingSafeEqual(expectedBuffer, suppliedBuffer)
+    ) {
+      return true;
+    }
+  }
+
+  return verifyAdminSession(
+    request.cookies.get(COOKIE_NAME)?.value
+  );
+}
+
 function normalizeRecord(record: AttendanceRecord): AttendanceRecord {
   const empId =
     record.empId ??
@@ -77,7 +105,15 @@ export async function OPTIONS(request: Request) {
   });
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  if (!isAuthorized(request)) {
+    return json(
+      { success: false, error: 'Access denied. Invalid or missing authentication.' },
+      request,
+      401,
+    );
+  }
+
   try {
     const body = await request.json();
 
@@ -126,7 +162,15 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  if (!isAuthorized(request)) {
+    return json(
+      { success: false, error: 'Access denied. Invalid or missing authentication.' },
+      request,
+      401,
+    );
+  }
+
   try {
     const { database } = await getDatabase();
     const preview = await database
